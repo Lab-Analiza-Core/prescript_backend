@@ -1,17 +1,38 @@
 # Prescript Backend
 
-Backend publico de Prescript construido con Django, Django REST Framework y SimpleJWT, separado de Interactive Core.
+API de Prescript construida con Django, Django REST Framework y SimpleJWT. Este servicio concentra la logica del portal medico: autenticacion, agenda, pacientes, preclinica, catalogos, preferencias de medicamentos y recetas.
+
+El backend mantiene sus datos operativos en PostgreSQL y puede consultar informacion de Interactive Core mediante una segunda conexion de base de datos o servicios HTTP internos.
 
 ## Stack
 
+- Python
 - Django 5.2
 - Django REST Framework
 - SimpleJWT
-- PostgreSQL local para Prescript por variables `PRESCRIPT_*`
-- PostgreSQL local para Interactive Core por alias `interactive_core` y variables `INTERACTIVE_CORE_*`
-- CORS configurado por entorno
+- PostgreSQL
+- django-environ
+- Docker y Gunicorn para ejecucion en contenedor
 
-## Arranque local
+## Modulos principales
+
+- `auth`: inicio de sesion, refresh de token, usuario autenticado y activacion de doctores.
+- `doctor`: perfil del doctor y preferencias de medicamentos.
+- `catalog`: catalogos de medicamentos, medicamentos recomendados y examenes.
+- `patients`: gestion de pacientes y signos vitales.
+- `preclinic`: captura preclinica por cita o paciente.
+- `appointments`: agenda de citas.
+- `prescriptions`: creacion y consulta de recetas.
+- `services/interactive_core`: integracion con Interactive Core.
+
+## Requisitos
+
+- Python 3.11 o superior recomendado.
+- PostgreSQL disponible localmente o mediante una URL de conexion.
+- Base de datos de Prescript creada, por defecto `prescript_db`.
+- Base de datos de Interactive Core disponible si se usa la integracion directa, por defecto `interactivecore_db`.
+
+## Configuracion local
 
 ```powershell
 cd C:\Users\InteractiveCore\Documents\ProyectosAnaliza\Prescript_Backend
@@ -19,70 +40,93 @@ python -m venv env
 .\env\Scripts\activate
 pip install -r requirements.txt
 Copy-Item .env.example .env
-python manage.py migrate
-python manage.py runserver 8001
 ```
 
-## Arranque con Docker
+Edita `.env` con las credenciales reales de PostgreSQL y los origenes permitidos del frontend.
 
-El contenedor usa el `.env` local, pero sobreescribe los hosts de base de datos a `host.docker.internal` para conectarse a PostgreSQL instalado en Windows.
-
-```powershell
-cd C:\Users\InteractiveCore\Documents\ProyectosAnaliza\Prescript_Backend
-docker compose up --build
-```
-
-La API queda disponible en:
-
-```text
-http://localhost:8003/api/v1/
-```
-
-Antes de levantar Docker, confirma que ambas bases existan y que PostgreSQL acepte conexiones desde Docker:
-
-```text
-prescript_db
-interactivecore_db
-```
-
-## Variables principales
+Variables mas importantes:
 
 ```env
 SECRET_KEY=change-me
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-PRESCRIPT_DATABASE_URL=
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175
+CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175
+
 PRESCRIPT_DB=prescript_db
 PRESCRIPT_USER=postgres
 PRESCRIPT_PASSWORD=postgres
 PRESCRIPT_HOST=localhost
 PRESCRIPT_PORT=5432
 
-INTERACTIVE_CORE_DATABASE_URL=
 INTERACTIVE_CORE_DB=interactivecore_db
 INTERACTIVE_CORE_USER=postgres
 INTERACTIVE_CORE_PASSWORD=postgres
 INTERACTIVE_CORE_HOST=localhost
 INTERACTIVE_CORE_PORT=5432
 
-DATABASE_URL=
 INTERACTIVE_CORE_API_BASE_URL=
 INTERACTIVE_CORE_API_TOKEN=
-
-GUNICORN_WORKERS=3
-GUNICORN_THREADS=4
-GUNICORN_TIMEOUT=120
+PRESCRIPT_TOP_DOCTOR_MIN_SCORE=80
 ```
 
-## Endpoints iniciales
+Tambien se pueden usar `PRESCRIPT_DATABASE_URL`, `INTERACTIVE_CORE_DATABASE_URL` o `DATABASE_URL` cuando el entorno entrega URLs completas.
+
+## Ejecucion local
+
+```powershell
+python manage.py migrate
+python manage.py runserver 8001
+```
+
+API local:
+
+```text
+http://localhost:8001/api/v1/
+```
+
+Panel admin:
+
+```text
+http://localhost:8001/admin/
+```
+
+## Ejecucion con Docker
+
+El contenedor lee `.env` y sobreescribe los hosts de base de datos a `host.docker.internal` para conectarse a PostgreSQL instalado en Windows.
+
+```powershell
+cd C:\Users\InteractiveCore\Documents\ProyectosAnaliza\Prescript_Backend
+docker compose up -d --build
+```
+
+API en Docker:
+
+```text
+http://localhost:8003/api/v1/
+```
+
+Ver logs:
+
+```powershell
+docker logs prescript_backend
+```
+
+## Endpoints
 
 ```text
 POST   /api/v1/auth/login
+POST   /api/v1/auth/doctor/activate
 POST   /api/v1/auth/refresh
+GET    /api/v1/auth/me
+
 GET    /api/v1/doctor/me
 PATCH  /api/v1/doctor/me
+GET    /api/v1/doctor/medicine-preferences
+POST   /api/v1/doctor/medicine-preferences
+GET    /api/v1/doctor/medicine-preferences/<id>
+PATCH  /api/v1/doctor/medicine-preferences/<id>
+DELETE /api/v1/doctor/medicine-preferences/<id>
 
 GET    /api/v1/catalog/medicines
 GET    /api/v1/catalog/medicines/recommended
@@ -94,6 +138,11 @@ GET    /api/v1/patients/<id>
 PATCH  /api/v1/patients/<id>
 POST   /api/v1/patients/vitals
 
+GET    /api/v1/preclinic/appointments
+POST   /api/v1/preclinic/appointments/<appointment_id>/vitals
+GET    /api/v1/preclinic/patients
+POST   /api/v1/preclinic/patients/<patient_id>/vitals
+
 GET    /api/v1/appointments
 POST   /api/v1/appointments
 GET    /api/v1/appointments/<id>
@@ -104,12 +153,19 @@ POST   /api/v1/prescriptions
 GET    /api/v1/prescriptions/<id>
 ```
 
-## Integracion con Interactive Core
+## Comandos utiles
 
-Los servicios viven en:
-
-```text
-api/services/interactive_core/
+```powershell
+python manage.py makemigrations
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py test
 ```
 
-La idea es que Prescript nunca consulte Supabase directamente desde el frontend. El backend de Prescript consume endpoints controlados de Interactive Core o SEMI y mantiene espejos locales para catalogos publicos.
+## Relacion con el frontend
+
+El frontend `prescript_frontend` consume esta API mediante `VITE_API_URL`. En Docker, la URL esperada por defecto es:
+
+```env
+VITE_API_URL=http://localhost:8003/api/v1
+```
