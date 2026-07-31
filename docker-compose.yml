@@ -1,0 +1,38 @@
+services:
+  prescript_backend:
+    container_name: prescript_backend
+    build: .
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: Prescript.settings
+      TZ: America/Tegucigalpa
+      PRESCRIPT_HOST: host.docker.internal
+      INTERACTIVE_CORE_HOST: host.docker.internal
+      DATABASE_URL: ""
+      DOCTOR_SYNC_QUEUE_ENABLED: "false"
+      DOCTOR_SYNC_ENABLED: "false"
+      DOCTOR_SYNC_CRON_ENABLE: "false"
+      DOCTOR_SYNC_TARGET_DATABASE_URL: ""
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+    volumes:
+      - staticfiles:/app/staticfiles
+      - media:/app/media
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/login/', timeout=5)\" || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  staticfiles:
+  media:
