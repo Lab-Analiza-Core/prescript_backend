@@ -13,9 +13,24 @@ SECRET_KEY = env("SECRET_KEY", default="prescript-local-dev-key")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+DEFAULT_CLIENT_ORIGINS = [
+    "https://prescript-frontend-murex.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+]
+
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+CORS_ALLOW_PRIVATE_NETWORK = env.bool("CORS_ALLOW_PRIVATE_NETWORK", default=True)
+CORS_ALLOWED_ORIGINS = list(
+    dict.fromkeys(DEFAULT_CLIENT_ORIGINS + env.list("CORS_ALLOWED_ORIGINS", default=[]))
+)
+CSRF_TRUSTED_ORIGINS = list(
+    dict.fromkeys(DEFAULT_CLIENT_ORIGINS + env.list("CSRF_TRUSTED_ORIGINS", default=[]))
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
