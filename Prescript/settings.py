@@ -23,10 +23,17 @@ DEFAULT_CLIENT_ORIGINS = [
     "http://127.0.0.1:5175",
 ]
 
+DEFAULT_CLIENT_ORIGIN_REGEXES = [
+    r"^https://prescript-frontend-[a-z0-9-]+-analiza\.vercel\.app$",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_PRIVATE_NETWORK = env.bool("CORS_ALLOW_PRIVATE_NETWORK", default=True)
 CORS_ALLOWED_ORIGINS = list(
     dict.fromkeys(DEFAULT_CLIENT_ORIGINS + env.list("CORS_ALLOWED_ORIGINS", default=[]))
+)
+CORS_ALLOWED_ORIGIN_REGEXES = list(
+    dict.fromkeys(DEFAULT_CLIENT_ORIGIN_REGEXES + env.list("CORS_ALLOWED_ORIGIN_REGEXES", default=[]))
 )
 CSRF_TRUSTED_ORIGINS = list(
     dict.fromkeys(DEFAULT_CLIENT_ORIGINS + env.list("CSRF_TRUSTED_ORIGINS", default=[]))
