@@ -245,3 +245,37 @@ class PreclinicTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(self.appointment.vitals.height_cm)
+
+    def test_patient_preclinic_vitals_are_upserted_by_selected_date(self):
+        selected_date = (timezone.localdate() - timezone.timedelta(days=2)).isoformat()
+
+        first_response = self.client.patch(
+            f"/api/v1/preclinic/patients/{self.patient.id}/vitals?date={selected_date}",
+            {"blood_pressure_systolic": 118, "blood_pressure_diastolic": 78, "weight_kg": "23.00"},
+            format="json",
+        )
+        second_response = self.client.patch(
+            f"/api/v1/preclinic/patients/{self.patient.id}/vitals?date={selected_date}",
+            {"blood_pressure_systolic": 120, "blood_pressure_diastolic": 80, "weight_kg": "23.40"},
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        daily_vitals = PatientVitals.objects.filter(
+            patient=self.patient,
+            appointment__isnull=True,
+            recorded_at__date=selected_date,
+        )
+        self.assertEqual(daily_vitals.count(), 1)
+        self.assertEqual(daily_vitals.get().blood_pressure_systolic, 120)
+        self.assertEqual(str(second_response.data["current_vitals"]["weight_kg"]), "23.40")
+
+    def test_patient_preclinic_vitals_reject_invalid_date(self):
+        response = self.client.patch(
+            f"/api/v1/preclinic/patients/{self.patient.id}/vitals?date=fecha-mala",
+            {"blood_pressure_systolic": 118},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

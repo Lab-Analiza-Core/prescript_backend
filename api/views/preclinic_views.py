@@ -1,4 +1,7 @@
+from datetime import datetime
+
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -8,6 +11,14 @@ from rest_framework.response import Response
 from api.models import Appointment, Patient, PatientVitals
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, get_primary_prescript_role
 from api.serializers.patient_serializers import PreclinicVitalsSerializer
+
+
+def _requested_date(request):
+    raw_date = request.query_params.get("date") or request.data.get("date") or timezone.localdate().isoformat()
+    parsed_date = parse_date(raw_date)
+    if not parsed_date:
+        return None
+    return parsed_date
 
 
 def _current_role(user):
@@ -201,14 +212,23 @@ def preclinic_patient_vitals_upsert_view(request, patient_id):
     if not _is_pediatric_patient(patient):
         payload["height_cm"] = None
 
-    today = timezone.localdate()
+    selected_date = _requested_date(request)
+    if not selected_date:
+        return Response({"date": "Fecha invalida."}, status=status.HTTP_400_BAD_REQUEST)
+
     instance = (
-        PatientVitals.objects.filter(patient=patient, appointment__isnull=True, recorded_at__date=today)
+        PatientVitals.objects.filter(patient=patient, appointment__isnull=True, recorded_at__date=selected_date)
         .order_by("-recorded_at")
         .first()
     )
     serializer = PreclinicVitalsSerializer(instance, data=payload, partial=True)
     serializer.is_valid(raise_exception=True)
-    serializer.save(patient=patient, appointment=None)
+    vitals = serializer.save(patient=patient, appointment=None)
+    if not instance and selected_date != timezone.localdate():
+        selected_datetime = timezone.make_aware(
+            datetime.combine(selected_date, timezone.localtime().time()),
+            timezone.get_current_timezone(),
+        )
+        PatientVitals.objects.filter(pk=vitals.pk).update(recorded_at=selected_datetime)
 
-    return Response(_patient_payload(patient, today.isoformat()))
+    return Response(_patient_payload(patient, selected_date.isoformat()))
