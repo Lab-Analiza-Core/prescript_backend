@@ -4,24 +4,75 @@ from rest_framework.permissions import IsAuthenticated
 
 from api.models import Patient, PatientVitals
 from api.permissions import IsDoctorProfileOwner
+from api.roles import (
+    PRESCRIPT_ROLE_ADMIN,
+    PRESCRIPT_ROLE_DOCTOR,
+    PRESCRIPT_ROLE_MANAGER,
+    PRESCRIPT_ROLE_NURSE,
+    PRESCRIPT_ROLE_SECRETARY,
+    get_primary_prescript_role,
+)
 from api.serializers import PatientSerializer, PatientVitalsSerializer
+from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
 from api.views.doctor_views import get_current_doctor
+
+
+def _current_role(user):
+    role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
+    if not role and (user.is_staff or user.is_superuser):
+        return PRESCRIPT_ROLE_ADMIN
+    return role
+
+
+def _accessible_patients(user):
+    queryset = Patient.objects.select_related("doctor", "medical_profile")
+    doctor = getattr(user, "doctor_portal_profile", None)
+    if doctor:
+        return queryset.filter(doctor=doctor)
+
+    role = _current_role(user)
+    if role == PRESCRIPT_ROLE_SECRETARY:
+        doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(user)
+        return queryset.filter(doctor__interactive_core_doctor_id__in=doctor_ids)
+
+    if role in {PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_MANAGER}:
+        return queryset
+
+    return queryset.none()
 
 
 class PatientListCreateView(generics.ListCreateAPIView):
     serializer_class = PatientSerializer
 
     def get_queryset(self):
-        queryset = Patient.objects.filter(
-            doctor=get_current_doctor(self.request.user),
-        ).select_related("medical_profile")
+        queryset = _accessible_patients(self.request.user)
         include_inactive = self.request.query_params.get("include_inactive") == "true"
         if not include_inactive:
             queryset = queryset.filter(is_active=True)
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(doctor=get_current_doctor(self.request.user))
+        role = _current_role(self.request.user)
+        doctor = getattr(self.request.user, "doctor_portal_profile", None)
+        if role == PRESCRIPT_ROLE_DOCTOR and doctor:
+            serializer.save(doctor=doctor)
+            return
+        if role == PRESCRIPT_ROLE_SECRETARY:
+            doctor = serializer.validated_data.get("doctor")
+            doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(self.request.user)
+            if not doctor:
+                raise PermissionDenied("Seleccione el doctor responsable del paciente.")
+            if doctor.interactive_core_doctor_id not in doctor_ids:
+                raise PermissionDenied("El doctor no esta vinculado a esta secretaria.")
+            serializer.save()
+            return
+        if role in {PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_MANAGER}:
+            doctor = serializer.validated_data.get("doctor")
+            if not doctor:
+                raise PermissionDenied("Seleccione el doctor responsable del paciente.")
+            serializer.save()
+            return
+        raise PermissionDenied("No puede registrar pacientes.")
 
 
 class PatientDetailView(generics.RetrieveUpdateAPIView):

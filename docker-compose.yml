@@ -7,6 +7,8 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: Prescript.settings
       TZ: America/Tegucigalpa
+      PRESCRIPT_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/prescript_db
+      INTERACTIVE_CORE_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/interactivecore_db
       PRESCRIPT_HOST: host.docker.internal
       INTERACTIVE_CORE_HOST: host.docker.internal
       DATABASE_URL: ""

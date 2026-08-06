@@ -6,8 +6,14 @@ from rest_framework.response import Response
 
 from api.models import DoctorMedicinePreference, DoctorPortalProfile
 from api.permissions import IsDoctorProfileOwner
-from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_DOCTOR, get_primary_prescript_role
-from api.serializers import DoctorMedicinePreferenceSerializer, DoctorPortalProfileSerializer
+from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY, get_primary_prescript_role
+from api.serializers import (
+    DoctorMedicinePreferenceSerializer,
+    DoctorPortalProfileSerializer,
+    NursePortalProfileSerializer,
+    SecretaryPortalProfileSerializer,
+)
+from api.serializers.auth_serializers import UserProfileUpdateSerializer
 
 
 def get_current_doctor(user):
@@ -19,36 +25,51 @@ def get_current_doctor(user):
         raise NotFound("El usuario autenticado no tiene perfil medico en Prescript.") from exc
 
 
-@api_view(["GET"])
+def build_auth_me_payload(user):
+    doctor = getattr(user, "doctor_portal_profile", None)
+    secretary = getattr(user, "secretary_portal_profile", None)
+    nurse = getattr(user, "nurse_portal_profile", None)
+
+    active_profile = doctor or secretary or nurse
+    doctor_profile = DoctorPortalProfileSerializer(doctor).data if doctor else None
+    role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
+    if doctor and not role:
+        role = PRESCRIPT_ROLE_DOCTOR
+    if not role:
+        role = PRESCRIPT_ROLE_ADMIN if user.is_staff or user.is_superuser else "user"
+
+    display_name = getattr(active_profile, "full_name", None) or user.get_full_name() or user.username
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "name": display_name,
+        "full_name": display_name,
+        "role": role,
+        "roles": list(user.groups.values_list("name", flat=True)),
+        "is_staff": user.is_staff,
+        "is_superuser": user.is_superuser,
+        "doctor_profile": doctor_profile,
+        "secretary_profile": SecretaryPortalProfileSerializer(secretary).data if secretary else None,
+        "nurse_profile": NursePortalProfileSerializer(nurse).data if nurse else None,
+    }
+
+
+@api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def auth_me_view(request):
-    user = request.user
-    doctor = getattr(user, "doctor_portal_profile", None)
+    if request.method == "PATCH":
+        serializer = UserProfileUpdateSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-    if doctor:
-        profile = DoctorPortalProfileSerializer(doctor).data
-        role = get_primary_prescript_role(user.groups.values_list("name", flat=True)) or PRESCRIPT_ROLE_DOCTOR
-        display_name = doctor.full_name
-    else:
-        profile = None
-        role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
-        if not role:
-            role = PRESCRIPT_ROLE_ADMIN if user.is_staff or user.is_superuser else "user"
-        display_name = user.get_full_name() or user.username
-
-    return Response(
-        {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "name": display_name,
-            "role": role,
-            "roles": list(user.groups.values_list("name", flat=True)),
-            "is_staff": user.is_staff,
-            "is_superuser": user.is_superuser,
-            "doctor_profile": profile,
-        }
-    )
+    return Response(build_auth_me_payload(request.user))
 
 
 class DoctorMeView(generics.RetrieveUpdateAPIView):
@@ -57,6 +78,31 @@ class DoctorMeView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return get_current_doctor(self.request.user)
+
+
+class DoctorListView(generics.ListAPIView):
+    serializer_class = DoctorPortalProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        doctor = getattr(self.request.user, "doctor_portal_profile", None)
+        if doctor:
+            return DoctorPortalProfile.objects.filter(pk=doctor.pk)
+
+        role = get_primary_prescript_role(self.request.user.groups.values_list("name", flat=True))
+        secretary = getattr(self.request.user, "secretary_portal_profile", None)
+        if role == PRESCRIPT_ROLE_SECRETARY and secretary:
+            from api.services.interactive_core import InteractiveCoreSecretaryService
+
+            doctor_ids = InteractiveCoreSecretaryService().get_assigned_doctor_ids(
+                secretary.secretaria_interactivecore_id
+            )
+            return DoctorPortalProfile.objects.filter(
+                interactive_core_doctor_id__in=doctor_ids,
+                status="active",
+            ).order_by("full_name")
+
+        return DoctorPortalProfile.objects.none()
 
 
 class DoctorMedicinePreferenceListCreateView(generics.ListCreateAPIView):

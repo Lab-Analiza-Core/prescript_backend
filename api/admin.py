@@ -14,10 +14,14 @@ from api.models import (
     PatientVitals,
     Prescription,
     PrescriptionItem,
+    NursePortalProfile,
+    SecretaryPortalProfile,
 )
 
 
 admin.site.register(DoctorPortalProfile)
+admin.site.register(SecretaryPortalProfile)
+admin.site.register(NursePortalProfile)
 admin.site.register(DoctorCredential)
 admin.site.register(DoctorAccessLog)
 admin.site.register(Patient)

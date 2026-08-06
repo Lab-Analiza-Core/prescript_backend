@@ -102,6 +102,65 @@ class DoctorCredential(models.Model):
         return self.username
 
 
+class SecretaryPortalProfile(models.Model):
+    STATUS_CHOICES = [
+        ("active", "Activo"),
+        ("inactive", "Inactivo"),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="secretary_portal_profile",
+    )
+    secretaria_interactivecore_id = models.PositiveIntegerField(unique=True)
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=25, blank=True, null=True)
+    country = models.CharField(max_length=80, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "secretary_portal_profile"
+        ordering = ["full_name"]
+
+    def __str__(self):
+        return self.full_name
+
+
+class NursePortalProfile(models.Model):
+    STATUS_CHOICES = [
+        ("active", "Activo"),
+        ("inactive", "Inactivo"),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="nurse_portal_profile",
+    )
+    interactive_core_user_id = models.PositiveIntegerField(unique=True)
+    interactive_core_employee_id = models.PositiveIntegerField(unique=True)
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=25, blank=True, null=True)
+    country = models.CharField(max_length=80, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "nurse_portal_profile"
+        ordering = ["full_name"]
+
+    def __str__(self):
+        return self.full_name
+
+
 class DoctorAccessLog(models.Model):
     EVENT_CHOICES = [
         ("login_success", "Inicio de sesion exitoso"),

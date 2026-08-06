@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
 from django.db import transaction
 from django.utils import timezone
@@ -6,9 +7,17 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from api.models import DoctorAccessLog, DoctorCredential, DoctorPortalProfile
-from api.roles import PRESCRIPT_ROLE_DOCTOR
-from api.services.interactive_core import InteractiveCoreDoctorService
+from api.models import DoctorAccessLog, DoctorCredential, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
+from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
+from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
+
+
+def get_user_portal_profile(user):
+    for attribute in ("doctor_portal_profile", "secretary_portal_profile", "nurse_portal_profile"):
+        profile = getattr(user, attribute, None)
+        if profile:
+            return profile
+    return None
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -139,3 +148,210 @@ class DoctorActivationSerializer(serializers.Serializer):
             "credential_id": credential.id,
             "roles": portal_roles,
         }
+
+
+class PortalAccessActivationSerializer(serializers.Serializer):
+    ROLE_CHOICES = (
+        (PRESCRIPT_ROLE_DOCTOR, "Doctor"),
+        (PRESCRIPT_ROLE_NURSE, "Enfermera"),
+        (PRESCRIPT_ROLE_SECRETARY, "Secretaria"),
+    )
+
+    role = serializers.ChoiceField(choices=ROLE_CHOICES)
+    identifier = serializers.CharField(max_length=254, write_only=True)
+    email = serializers.EmailField(required=False, write_only=True)
+    password = serializers.CharField(min_length=8, write_only=True)
+    password_confirm = serializers.CharField(min_length=8, write_only=True)
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError({"password_confirm": "Las contrasenas no coinciden."})
+
+        role = attrs["role"]
+        profile = InteractiveCoreAccessService().lookup(role, attrs["identifier"].strip())
+        if profile is None:
+            raise serializers.ValidationError({"identifier": "No se encontro un registro activo para este rol en Interactive Core."})
+
+        if role == PRESCRIPT_ROLE_DOCTOR and profile.get("status") != "active":
+            raise serializers.ValidationError({"identifier": "El doctor no esta activo en Interactive Core."})
+
+        attrs["interactive_core_profile"] = profile
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        role = validated_data["role"]
+        profile_data = validated_data["interactive_core_profile"]
+        email = validated_data.get("email") or profile_data.get("email")
+        if not email:
+            raise serializers.ValidationError({"email": "Se requiere correo para crear credenciales."})
+
+        username = email.lower()
+        user_model = get_user_model()
+        user, _ = user_model.objects.get_or_create(
+            username=username,
+            defaults={
+                "email": email,
+                "first_name": profile_data.get("full_name", "")[:150],
+                "is_active": True,
+            },
+        )
+        user.email = email
+        user.is_active = True
+        user.set_password(validated_data["password"])
+        user.save(update_fields=["email", "is_active", "password"])
+
+        group, _ = Group.objects.get_or_create(name=role)
+        user.groups.add(group)
+
+        response_ids = {}
+        if role == PRESCRIPT_ROLE_DOCTOR:
+            profile, _ = DoctorPortalProfile.objects.update_or_create(
+                interactive_core_doctor_id=profile_data["id"],
+                defaults={
+                    "user": user,
+                    "full_name": profile_data.get("full_name") or username,
+                    "colegiation_code": profile_data.get("colegiation_code"),
+                    "qualification_code": profile_data.get("qualification_code"),
+                    "final_score": profile_data.get("final_score"),
+                    "phone": profile_data.get("phone"),
+                    "public_email": email,
+                    "specialties": profile_data.get("specialties") or [],
+                    "is_top_doctor": profile_data.get("is_top_doctor", False),
+                    "status": "active",
+                    "last_synced_at": timezone.now(),
+                },
+            )
+            DoctorCredential.objects.update_or_create(
+                doctor=profile,
+                defaults={
+                    "username": username,
+                    "email": email,
+                    "is_portal_enabled": True,
+                    "password_set_at": timezone.now(),
+                    "last_password_change_at": timezone.now(),
+                },
+            )
+            response_ids["doctor_profile_id"] = profile.id
+        elif role == PRESCRIPT_ROLE_SECRETARY:
+            profile, _ = SecretaryPortalProfile.objects.update_or_create(
+                secretaria_interactivecore_id=profile_data["id"],
+                defaults={
+                    "user": user,
+                    "full_name": profile_data.get("full_name") or username,
+                    "email": email,
+                    "phone": profile_data.get("phone"),
+                    "country": profile_data.get("country"),
+                    "status": "active",
+                    "last_synced_at": timezone.now(),
+                },
+            )
+            response_ids["secretary_profile_id"] = profile.id
+        elif role == PRESCRIPT_ROLE_NURSE:
+            profile, _ = NursePortalProfile.objects.update_or_create(
+                interactive_core_user_id=profile_data["interactive_core_user_id"],
+                defaults={
+                    "user": user,
+                    "interactive_core_employee_id": profile_data["interactive_core_employee_id"],
+                    "full_name": profile_data.get("full_name") or username,
+                    "email": email,
+                    "phone": profile_data.get("phone"),
+                    "country": profile_data.get("country"),
+                    "status": "active",
+                    "last_synced_at": timezone.now(),
+                },
+            )
+            response_ids["nurse_profile_id"] = profile.id
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "roles": [role],
+            **response_ids,
+        }
+
+
+class UserProfileUpdateSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=25)
+    current_password = serializers.CharField(required=False, write_only=True)
+    new_password = serializers.CharField(required=False, write_only=True, min_length=8)
+    password_confirm = serializers.CharField(required=False, write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        user = self.context["request"].user
+        user_model = get_user_model()
+        if user_model.objects.filter(email__iexact=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Este correo ya esta en uso.")
+        normalized_value = value.lower()
+        if user_model.objects.filter(username__iexact=normalized_value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Este correo ya esta en uso como usuario.")
+        return normalized_value
+
+    def validate(self, attrs):
+        new_password = attrs.get("new_password")
+        current_password = attrs.get("current_password")
+        password_confirm = attrs.get("password_confirm")
+
+        if new_password or current_password or password_confirm:
+            if not current_password:
+                raise serializers.ValidationError({"current_password": "Ingrese su contrasena actual."})
+            if not new_password:
+                raise serializers.ValidationError({"new_password": "Ingrese la nueva contrasena."})
+            if new_password != password_confirm:
+                raise serializers.ValidationError({"password_confirm": "Las contrasenas no coinciden."})
+            user = self.context["request"].user
+            if not user.check_password(current_password):
+                raise serializers.ValidationError({"current_password": "La contrasena actual no es correcta."})
+            validate_password(new_password, user=user)
+
+        return attrs
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        user = instance
+        email = validated_data.get("email")
+        phone = validated_data.get("phone")
+        new_password = validated_data.get("new_password")
+        user_update_fields = []
+
+        if email is not None:
+            user.email = email
+            user.username = email
+            user_update_fields.extend(["email", "username"])
+
+        if new_password:
+            user.set_password(new_password)
+            user_update_fields.append("password")
+
+        if user_update_fields:
+            user.save(update_fields=list(dict.fromkeys(user_update_fields)))
+
+        profile = get_user_portal_profile(user)
+        if profile:
+            profile_update_fields = []
+            if phone is not None and hasattr(profile, "phone"):
+                profile.phone = phone.strip() or None
+                profile_update_fields.append("phone")
+            if email is not None:
+                if hasattr(profile, "email"):
+                    profile.email = email
+                    profile_update_fields.append("email")
+                if hasattr(profile, "public_email"):
+                    profile.public_email = email
+                    profile_update_fields.append("public_email")
+            if profile_update_fields:
+                profile.save(update_fields=list(dict.fromkeys(profile_update_fields + ["updated_at"])))
+
+        doctor = getattr(user, "doctor_portal_profile", None)
+        if doctor and (email is not None or new_password):
+            credential_updates = {
+                "email": user.email,
+                "username": user.username,
+            }
+            if new_password:
+                credential_updates["last_password_change_at"] = timezone.now()
+            DoctorCredential.objects.filter(doctor=doctor).update(**credential_updates)
+
+        return user

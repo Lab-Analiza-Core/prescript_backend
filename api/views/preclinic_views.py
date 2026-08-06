@@ -21,6 +21,10 @@ def _requested_date(request):
     return parsed_date
 
 
+def _is_future_date(value):
+    return value > timezone.localdate()
+
+
 def _current_role(user):
     role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
     if not role and (user.is_staff or user.is_superuser):
@@ -188,6 +192,12 @@ def preclinic_vitals_upsert_view(request, appointment_id):
     except Appointment.DoesNotExist:
         return Response({"detail": "Cita no encontrada para preclinica."}, status=status.HTTP_404_NOT_FOUND)
 
+    if _is_future_date(timezone.localdate(appointment.scheduled_at)):
+        return Response(
+            {"date": "No se pueden agregar datos de preclinica en fechas futuras."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     payload = request.data.copy()
     if not _is_pediatric_appointment(appointment):
         payload["height_cm"] = None
@@ -215,6 +225,11 @@ def preclinic_patient_vitals_upsert_view(request, patient_id):
     selected_date = _requested_date(request)
     if not selected_date:
         return Response({"date": "Fecha invalida."}, status=status.HTTP_400_BAD_REQUEST)
+    if _is_future_date(selected_date):
+        return Response(
+            {"date": "No se pueden agregar datos de preclinica en fechas futuras."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     instance = (
         PatientVitals.objects.filter(patient=patient, appointment__isnull=True, recorded_at__date=selected_date)

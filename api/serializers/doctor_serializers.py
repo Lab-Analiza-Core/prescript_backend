@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from api.models import DoctorMedicinePreference, DoctorPortalProfile
+from api.models import DoctorMedicinePreference, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
 
 
 class DoctorPortalProfileSerializer(serializers.ModelSerializer):
@@ -38,12 +38,50 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
             "country",
             "company",
             "zone",
+            "specialties",
             "is_top_doctor",
             "status",
             "last_synced_at",
             "created_at",
             "updated_at",
         ]
+
+
+class SecretaryPortalProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecretaryPortalProfile
+        fields = [
+            "id",
+            "secretaria_interactivecore_id",
+            "full_name",
+            "email",
+            "phone",
+            "country",
+            "status",
+            "last_synced_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class NursePortalProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NursePortalProfile
+        fields = [
+            "id",
+            "interactive_core_user_id",
+            "interactive_core_employee_id",
+            "full_name",
+            "email",
+            "phone",
+            "country",
+            "status",
+            "last_synced_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class DoctorMedicinePreferenceSerializer(serializers.ModelSerializer):
