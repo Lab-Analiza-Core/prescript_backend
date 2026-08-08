@@ -10,6 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from api.models import DoctorAccessLog, DoctorCredential, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
 from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
 from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
+from api.utils.field_validators import validate_and_format_phone
 
 
 def get_user_portal_profile(user):
@@ -288,6 +289,12 @@ class UserProfileUpdateSerializer(serializers.Serializer):
         if user_model.objects.filter(username__iexact=normalized_value).exclude(pk=user.pk).exists():
             raise serializers.ValidationError("Este correo ya esta en uso como usuario.")
         return normalized_value
+
+    def validate_phone(self, value):
+        user = self.context["request"].user
+        profile = get_user_portal_profile(user)
+        country = getattr(profile, "country", None) or "HN"
+        return validate_and_format_phone(value, country=country)
 
     def validate(self, attrs):
         new_password = attrs.get("new_password")

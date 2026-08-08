@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from api.models import Patient, PatientMedicalProfile, PatientVitals
+from api.models import DoctorPortalProfile, Patient, PatientMedicalProfile, PatientVitals
+from api.utils.field_validators import validate_and_format_dni, validate_and_format_phone
 
 
 class PatientMedicalProfileSerializer(serializers.ModelSerializer):
@@ -19,7 +20,9 @@ class PatientMedicalProfileSerializer(serializers.ModelSerializer):
 
 
 class PatientSerializer(serializers.ModelSerializer):
+    doctor = serializers.PrimaryKeyRelatedField(queryset=DoctorPortalProfile.objects.all(), required=False)
     full_name = serializers.CharField(read_only=True)
+    doctor_name = serializers.CharField(source="doctor.full_name", read_only=True)
     medical_profile = PatientMedicalProfileSerializer(required=False)
     latest_vitals = serializers.SerializerMethodField()
     recent_vitals = serializers.SerializerMethodField()
@@ -29,6 +32,7 @@ class PatientSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "doctor",
+            "doctor_name",
             "first_name",
             "last_name",
             "full_name",
@@ -46,7 +50,7 @@ class PatientSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "doctor", "patient_score", "created_at", "updated_at"]
+        read_only_fields = ["id", "doctor_name", "patient_score", "created_at", "updated_at"]
 
     def get_latest_vitals(self, obj):
         latest = obj.vitals.order_by("-recorded_at").first()
@@ -55,6 +59,48 @@ class PatientSerializer(serializers.ModelSerializer):
     def get_recent_vitals(self, obj):
         vitals = obj.vitals.order_by("-recorded_at")[:5]
         return PatientVitalsSerializer(vitals, many=True).data
+
+    def _get_validation_country(self, attrs=None):
+        attrs = attrs or {}
+        doctor = attrs.get("doctor")
+        if not doctor and self.instance:
+            doctor = self.instance.doctor
+        if not doctor:
+            request = self.context.get("request")
+            doctor = getattr(getattr(request, "user", None), "doctor_portal_profile", None)
+        return getattr(doctor, "country", None) or "HN"
+
+    def validate(self, attrs):
+        country = self._get_validation_country(attrs)
+        errors = {}
+        if "dni" in attrs:
+            try:
+                attrs["dni"] = validate_and_format_dni(attrs.get("dni"), country=country)
+            except serializers.ValidationError as exc:
+                errors["dni"] = exc.detail
+        if "phone" in attrs:
+            try:
+                attrs["phone"] = validate_and_format_phone(attrs.get("phone"), country=country)
+            except serializers.ValidationError as exc:
+                errors["phone"] = exc.detail
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        doctor = attrs.get("doctor")
+        if not doctor and self.instance:
+            doctor = self.instance.doctor
+        if not doctor:
+            request = self.context.get("request")
+            doctor = getattr(getattr(request, "user", None), "doctor_portal_profile", None)
+        dni = attrs.get("dni", getattr(self.instance, "dni", None))
+        if doctor and dni:
+            queryset = Patient.objects.filter(doctor=doctor, dni=dni)
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError({"dni": "Ya existe un paciente con este DNI para el doctor seleccionado."})
+
+        return attrs
 
     def create(self, validated_data):
         profile_data = validated_data.pop("medical_profile", None)

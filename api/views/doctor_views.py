@@ -6,7 +6,14 @@ from rest_framework.response import Response
 
 from api.models import DoctorMedicinePreference, DoctorPortalProfile
 from api.permissions import IsDoctorProfileOwner
-from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY, get_primary_prescript_role
+from api.roles import (
+    PRESCRIPT_ROLE_ADMIN,
+    PRESCRIPT_ROLE_DOCTOR,
+    PRESCRIPT_ROLE_MANAGER,
+    PRESCRIPT_ROLE_NURSE,
+    PRESCRIPT_ROLE_SECRETARY,
+    get_primary_prescript_role,
+)
 from api.serializers import (
     DoctorMedicinePreferenceSerializer,
     DoctorPortalProfileSerializer,
@@ -101,6 +108,9 @@ class DoctorListView(generics.ListAPIView):
                 interactive_core_doctor_id__in=doctor_ids,
                 status="active",
             ).order_by("full_name")
+
+        if role in {PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_MANAGER, PRESCRIPT_ROLE_NURSE}:
+            return DoctorPortalProfile.objects.filter(status="active").order_by("full_name")
 
         return DoctorPortalProfile.objects.none()
 

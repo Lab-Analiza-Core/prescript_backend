@@ -361,7 +361,7 @@ class UserProfileUpdateTests(TestCase):
         self.assertEqual(self.user.email, "nurse.updated@test.local")
         self.assertEqual(self.user.username, "nurse.updated@test.local")
         self.assertEqual(self.profile.email, "nurse.updated@test.local")
-        self.assertEqual(self.profile.phone, "88882222")
+        self.assertEqual(self.profile.phone, "8888-2222")
         self.assertEqual(response.data["email"], "nurse.updated@test.local")
 
     def test_user_can_change_password_with_new_password_and_confirmation(self):
@@ -454,6 +454,33 @@ class AppointmentSchedulingTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["doctor"], self.doctor.id)
         self.assertEqual(response.data["patient"], self.patient.id)
+
+    def test_doctor_profile_without_group_can_create_patient(self):
+        profile_only_user = get_user_model().objects.create_user(
+            username="profile-only-doctor@test.local",
+            email="profile-only-doctor@test.local",
+            password="Doctor1234!",
+        )
+        doctor = DoctorPortalProfile.objects.create(
+            user=profile_only_user,
+            interactive_core_doctor_id=399,
+            full_name="Dr. Perfil Sin Grupo",
+            status="active",
+        )
+        self.client.force_authenticate(profile_only_user)
+
+        response = self.client.post(
+            "/api/v1/patients",
+            {
+                "first_name": "Paciente",
+                "last_name": "Sin Grupo",
+                "dni": "0801199012345",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["doctor"], doctor.id)
 
     @patch("api.services.secretary_access.InteractiveCoreSecretaryService.get_assigned_doctor_ids")
     def test_secretary_can_schedule_after_preclinic(self, get_assigned_doctor_ids):
@@ -615,6 +642,67 @@ class AppointmentSchedulingTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_can_create_patient_for_selected_doctor(self):
+        admin_user = get_user_model().objects.create_user(
+            username="patient-admin@test.local",
+            email="patient-admin@test.local",
+            password="Admin1234!",
+        )
+        Group.objects.get_or_create(name="ADMIN")[0].user_set.add(admin_user)
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            "/api/v1/patients",
+            {
+                "doctor": self.doctor.id,
+                "first_name": "Byron",
+                "last_name": "Garcia",
+                "dni": "1223434343434",
+                "phone": "43554675",
+                "email": "byronavila@paciente.prescript.com",
+                "birth_date": "2020-08-07",
+                "sex": "F",
+                "commercial_notes": "Un paciente interesante",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["doctor"], self.doctor.id)
+        self.assertEqual(response.data["dni"], "1223-4343-43434")
+        self.assertEqual(response.data["phone"], "4355-4675")
+
+    def test_patient_dni_and_phone_must_match_country_masks(self):
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.post(
+            "/api/v1/patients",
+            {
+                "first_name": "Paciente",
+                "last_name": "Invalido",
+                "dni": "12345",
+                "phone": "999",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("dni", response.data)
+
+    def test_admin_can_list_doctors_for_patient_assignment(self):
+        admin_user = get_user_model().objects.create_user(
+            username="doctor-list-admin@test.local",
+            email="doctor-list-admin@test.local",
+            password="Admin1234!",
+        )
+        Group.objects.get_or_create(name="ADMIN")[0].user_set.add(admin_user)
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get("/api/v1/doctors")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(any(doctor["id"] == self.doctor.id for doctor in response.data))
 
     @patch("api.services.secretary_access.InteractiveCoreSecretaryService.get_assigned_doctor_ids")
     def test_secretary_can_reschedule_existing_appointment(self, get_assigned_doctor_ids):
