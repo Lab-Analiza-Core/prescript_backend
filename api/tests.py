@@ -273,6 +273,58 @@ class PortalAccessActivationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class AdminUserManagementTests(TestCase):
+    def setUp(self):
+        self.client = APIClient(HTTP_HOST="localhost")
+        self.admin_user = get_user_model().objects.create_user(
+            username="admin@test.local",
+            email="admin@test.local",
+            password="Admin1234!",
+        )
+        Group.objects.get_or_create(name="ADMIN")[0].user_set.add(self.admin_user)
+        self.doctor_user = get_user_model().objects.create_user(
+            username="doctor-users@test.local",
+            email="doctor-users@test.local",
+            password="Doctor1234!",
+        )
+        Group.objects.get_or_create(name="DOCTOR")[0].user_set.add(self.doctor_user)
+
+    def test_admin_can_list_users(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get("/api/v1/admin/users")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 2)
+
+    def test_non_admin_cannot_list_users(self):
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.get("/api/v1/admin/users")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_create_user_with_role(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            "/api/v1/admin/users",
+            {
+                "username": "nueva.secretaria@test.local",
+                "email": "nueva.secretaria@test.local",
+                "first_name": "Nueva",
+                "last_name": "Secretaria",
+                "password": "Temporal123!",
+                "roles": ["SECRETARY"],
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Group.objects.filter(name="SECRETARY", user__email="nueva.secretaria@test.local").exists())
+
+
 class UserProfileUpdateTests(TestCase):
     def setUp(self):
         self.client = APIClient(HTTP_HOST="localhost")
@@ -312,11 +364,10 @@ class UserProfileUpdateTests(TestCase):
         self.assertEqual(self.profile.phone, "88882222")
         self.assertEqual(response.data["email"], "nurse.updated@test.local")
 
-    def test_user_can_change_password_with_current_password(self):
+    def test_user_can_change_password_with_new_password_and_confirmation(self):
         response = self.client.patch(
             "/api/v1/auth/me",
             {
-                "current_password": "Doctor1234!",
                 "new_password": "Nuevo1234!",
                 "password_confirm": "Nuevo1234!",
             },
@@ -327,13 +378,12 @@ class UserProfileUpdateTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("Nuevo1234!"))
 
-    def test_user_cannot_change_password_with_wrong_current_password(self):
+    def test_user_cannot_change_password_when_confirmation_does_not_match(self):
         response = self.client.patch(
             "/api/v1/auth/me",
             {
-                "current_password": "Incorrecta123!",
                 "new_password": "Nuevo1234!",
-                "password_confirm": "Nuevo1234!",
+                "password_confirm": "Distinta123!",
             },
             format="json",
         )

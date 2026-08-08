@@ -19,6 +19,7 @@ from api.views.preclinic_views import (
     preclinic_vitals_upsert_view,
 )
 from api.views.prescription_views import PrescriptionDetailView, PrescriptionListCreateView
+from api.views.user_views import AdminUserDetailView, AdminUserListCreateView, AdminUserPasswordResetView
 
 
 urlpatterns = [
@@ -27,6 +28,9 @@ urlpatterns = [
     path("auth/doctor/activate", DoctorActivationView.as_view(), name="doctor-activate"),
     path("auth/refresh", TokenRefreshView.as_view(), name="token-refresh"),
     path("auth/me", auth_me_view, name="auth-me"),
+    path("admin/users", AdminUserListCreateView.as_view(), name="admin-user-list-create"),
+    path("admin/users/<int:pk>", AdminUserDetailView.as_view(), name="admin-user-detail"),
+    path("admin/users/<int:pk>/reset-password", AdminUserPasswordResetView.as_view(), name="admin-user-reset-password"),
     path("doctors", DoctorListView.as_view(), name="doctor-list"),
     path("doctor/me", DoctorMeView.as_view(), name="doctor-me"),
     path("doctor/medicine-preferences", DoctorMedicinePreferenceListCreateView.as_view(), name="doctor-medicine-preferences"),
