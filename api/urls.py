@@ -1,7 +1,12 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from api.views.auth_views import DoctorActivationView, EmailTokenObtainPairView, PortalAccessActivationView
+from api.views.auth_views import (
+    DoctorActivationView,
+    EmailTokenObtainPairView,
+    PortalAccessActivationView,
+    PortalAccessIdentifierValidationView,
+)
 from api.views.appointment_views import AppointmentDetailView, AppointmentListCreateView
 from api.views.catalog_views import ExamCatalogListView, MedicineCatalogListView, RecommendedMedicineListView
 from api.views.doctor_views import (
@@ -25,6 +30,7 @@ from api.views.user_views import AdminUserDetailView, AdminUserListCreateView, A
 urlpatterns = [
     path("auth/login", EmailTokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("auth/access/activate", PortalAccessActivationView.as_view(), name="portal-access-activate"),
+    path("auth/access/validate", PortalAccessIdentifierValidationView.as_view(), name="portal-access-validate"),
     path("auth/doctor/activate", DoctorActivationView.as_view(), name="doctor-activate"),
     path("auth/refresh", TokenRefreshView.as_view(), name="token-refresh"),
     path("auth/me", auth_me_view, name="auth-me"),

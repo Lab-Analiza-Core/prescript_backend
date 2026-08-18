@@ -1,11 +1,16 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from api.models import DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
-from api.roles import PRESCRIPT_ROLE_CHOICES, get_primary_prescript_role
+from api.roles import PRESCRIPT_ROLE_CHOICES
+from api.services.admin_user_service import (
+    create_admin_user,
+    generate_temporary_password,
+    reset_user_password,
+    update_admin_user,
+)
+from api.services.role_access import get_current_prescript_role
 
 
 ROLE_CHOICES = [(role, role) for role in PRESCRIPT_ROLE_CHOICES]
@@ -66,12 +71,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         return (profile or {}).get("full_name") or user.get_full_name() or user.username
 
     def get_primary_role(self, user):
-        role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
-        if role:
-            return role
-        if user.is_staff or user.is_superuser:
-            return "ADMIN"
-        return ""
+        return get_current_prescript_role(user)
 
     def get_profile(self, user):
         return get_user_profile_summary(user)
@@ -115,44 +115,23 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        roles = validated_data.pop("roles", [])
-        password = validated_data.pop("password")
-        user = get_user_model()(**validated_data)
-        user.set_password(password)
-        user.save()
-        self._sync_roles(user, roles)
-        return user
+        return create_admin_user(get_user_model(), validated_data)
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        roles = validated_data.pop("roles", None)
-        password = validated_data.pop("password", "")
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        if password:
-            instance.set_password(password)
-        instance.save()
-        if roles is not None:
-            self._sync_roles(instance, roles)
-        return instance
-
-    def _sync_roles(self, user, roles):
-        groups = []
-        for role in roles:
-            group, _ = Group.objects.get_or_create(name=role)
-            groups.append(group)
-        user.groups.set(groups)
+        return update_admin_user(instance, validated_data)
 
 
 class UserPasswordResetSerializer(serializers.Serializer):
-    password = serializers.CharField(min_length=8, write_only=True)
+    password = serializers.CharField(min_length=8, required=False, allow_blank=True, write_only=True)
 
     def validate_password(self, value):
-        validate_password(value, user=self.context["user"])
+        if value:
+            validate_password(value, user=self.context["user"])
         return value
 
     def save(self, **kwargs):
         user = self.context["user"]
-        user.set_password(self.validated_data["password"])
-        user.save(update_fields=["password"])
-        return user
+        password = self.validated_data.get("password") or generate_temporary_password()
+        validate_password(password, user=user)
+        return reset_user_password(user, password)

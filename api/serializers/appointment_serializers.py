@@ -2,7 +2,8 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from api.models import Appointment, DoctorPortalProfile, PatientVitals
-from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY, get_primary_prescript_role
+from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
+from api.services.role_access import get_current_prescript_role
 from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
 
 
@@ -42,6 +43,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "last_preclinic_at"]
 
     def get_last_preclinic_at(self, obj):
+        annotated_value = getattr(obj, "last_preclinic_recorded_at", None)
+        if annotated_value is not None:
+            return annotated_value
         latest = PatientVitals.objects.filter(patient=obj.patient).order_by("-recorded_at").first()
         return latest.recorded_at if latest else None
 
@@ -49,10 +53,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user:
             return ""
-        role = get_primary_prescript_role(request.user.groups.values_list("name", flat=True))
-        if not role and getattr(request.user, "doctor_portal_profile", None):
-            return PRESCRIPT_ROLE_DOCTOR
-        return role
+        return get_current_prescript_role(request.user)
 
     def _current_doctor(self):
         request = self.context.get("request")

@@ -61,5 +61,5 @@ class AdminUserPasswordResetView(APIView):
         user = generics.get_object_or_404(get_user_model(), pk=pk)
         serializer = UserPasswordResetSerializer(data=request.data, context={"user": user})
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"detail": "Contrasena actualizada."})
+        temporary_password = serializer.save()
+        return Response({"detail": "Contrasena actualizada.", "temporary_password": temporary_password})

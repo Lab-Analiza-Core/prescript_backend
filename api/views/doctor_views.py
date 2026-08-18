@@ -8,12 +8,12 @@ from api.models import DoctorMedicinePreference, DoctorPortalProfile
 from api.permissions import IsDoctorProfileOwner
 from api.roles import (
     PRESCRIPT_ROLE_ADMIN,
-    PRESCRIPT_ROLE_DOCTOR,
     PRESCRIPT_ROLE_MANAGER,
     PRESCRIPT_ROLE_NURSE,
     PRESCRIPT_ROLE_SECRETARY,
-    get_primary_prescript_role,
 )
+from api.services.role_access import get_current_prescript_role
+from api.services.doctor_display import format_doctor_display_name
 from api.serializers import (
     DoctorMedicinePreferenceSerializer,
     DoctorPortalProfileSerializer,
@@ -39,13 +39,11 @@ def build_auth_me_payload(user):
 
     active_profile = doctor or secretary or nurse
     doctor_profile = DoctorPortalProfileSerializer(doctor).data if doctor else None
-    role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
-    if doctor and not role:
-        role = PRESCRIPT_ROLE_DOCTOR
-    if not role:
-        role = PRESCRIPT_ROLE_ADMIN if user.is_staff or user.is_superuser else "user"
+    role = get_current_prescript_role(user) or "user"
 
     display_name = getattr(active_profile, "full_name", None) or user.get_full_name() or user.username
+    if doctor:
+        display_name = format_doctor_display_name(doctor.full_name, doctor.sex)
 
     return {
         "id": user.id,
@@ -53,6 +51,7 @@ def build_auth_me_payload(user):
         "email": user.email,
         "name": display_name,
         "full_name": display_name,
+        "display_name": display_name,
         "role": role,
         "roles": list(user.groups.values_list("name", flat=True)),
         "is_staff": user.is_staff,
@@ -96,7 +95,7 @@ class DoctorListView(generics.ListAPIView):
         if doctor:
             return DoctorPortalProfile.objects.filter(pk=doctor.pk)
 
-        role = get_primary_prescript_role(self.request.user.groups.values_list("name", flat=True))
+        role = get_current_prescript_role(self.request.user)
         secretary = getattr(self.request.user, "secretary_portal_profile", None)
         if role == PRESCRIPT_ROLE_SECRETARY and secretary:
             from api.services.interactive_core import InteractiveCoreSecretaryService

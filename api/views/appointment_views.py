@@ -1,18 +1,13 @@
 from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Max
 
 from api.models import Appointment
-from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY, get_primary_prescript_role
+from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
+from api.services.role_access import get_current_prescript_role
 from api.serializers import AppointmentSerializer
 from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
-
-
-def _current_role(user):
-    role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
-    if not role and getattr(user, "doctor_portal_profile", None):
-        return PRESCRIPT_ROLE_DOCTOR
-    return role
 
 
 class AppointmentListCreateView(generics.ListCreateAPIView):
@@ -20,9 +15,11 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        role = _current_role(self.request.user)
+        role = get_current_prescript_role(self.request.user)
         doctor = getattr(self.request.user, "doctor_portal_profile", None)
-        queryset = Appointment.objects.select_related("doctor", "patient")
+        queryset = Appointment.objects.select_related("doctor", "patient").annotate(
+            last_preclinic_recorded_at=Max("patient__vitals__recorded_at")
+        )
 
         if role == PRESCRIPT_ROLE_DOCTOR and doctor:
             queryset = queryset.filter(doctor=doctor)
@@ -41,7 +38,7 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        role = _current_role(self.request.user)
+        role = get_current_prescript_role(self.request.user)
         if role not in {PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY}:
             raise PermissionDenied("Solo secretaria y doctor pueden gestionar citas.")
         serializer.save()
@@ -52,9 +49,11 @@ class AppointmentDetailView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        role = _current_role(self.request.user)
+        role = get_current_prescript_role(self.request.user)
         doctor = getattr(self.request.user, "doctor_portal_profile", None)
-        queryset = Appointment.objects.select_related("doctor", "patient")
+        queryset = Appointment.objects.select_related("doctor", "patient").annotate(
+            last_preclinic_recorded_at=Max("patient__vitals__recorded_at")
+        )
 
         if role == PRESCRIPT_ROLE_DOCTOR and doctor:
             return queryset.filter(doctor=doctor)

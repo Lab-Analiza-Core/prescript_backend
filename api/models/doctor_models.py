@@ -8,6 +8,11 @@ class DoctorPortalProfile(models.Model):
         ("active", "Activo"),
         ("inactive", "Inactivo"),
     ]
+    SEX_CHOICES = [
+        ("F", "Femenino"),
+        ("M", "Masculino"),
+        ("O", "Otro"),
+    ]
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -16,6 +21,7 @@ class DoctorPortalProfile(models.Model):
     )
     interactive_core_doctor_id = models.PositiveIntegerField(unique=True)
     full_name = models.CharField(max_length=255)
+    sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
     colegiation_code = models.CharField(max_length=50, blank=True, null=True)
     qualification_code = models.CharField(max_length=100, blank=True, null=True)
     final_score = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)

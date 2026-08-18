@@ -1,6 +1,7 @@
 from rest_framework.permissions import BasePermission
 
-from api.roles import PRESCRIPT_ROLE_ADMIN, get_primary_prescript_role
+from api.roles import PRESCRIPT_ROLE_ADMIN
+from api.services.role_access import get_current_prescript_role
 
 
 class IsPrescriptAdmin(BasePermission):
@@ -12,5 +13,4 @@ class IsPrescriptAdmin(BasePermission):
             return False
         if user.is_staff or user.is_superuser:
             return True
-        role = get_primary_prescript_role(user.groups.values_list("name", flat=True))
-        return role == PRESCRIPT_ROLE_ADMIN
+        return get_current_prescript_role(user) == PRESCRIPT_ROLE_ADMIN

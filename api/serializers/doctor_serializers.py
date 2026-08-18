@@ -1,10 +1,15 @@
 from rest_framework import serializers
 
 from api.models import DoctorMedicinePreference, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
+from api.services.doctor_display import format_doctor_display_name
 
 
 class DoctorPortalProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
+    display_name = serializers.SerializerMethodField()
+
+    def get_display_name(self, doctor):
+        return format_doctor_display_name(doctor.full_name, doctor.sex)
 
     class Meta:
         model = DoctorPortalProfile
@@ -12,6 +17,8 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
             "id",
             "interactive_core_doctor_id",
             "full_name",
+            "display_name",
+            "sex",
             "colegiation_code",
             "qualification_code",
             "final_score",
@@ -32,6 +39,8 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "interactive_core_doctor_id",
+            "display_name",
+            "sex",
             "colegiation_code",
             "qualification_code",
             "final_score",

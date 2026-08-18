@@ -1,14 +1,13 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.models import Group
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.tokens import RefreshToken
 
-from api.models import DoctorAccessLog, DoctorCredential, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
+from api.models import DoctorCredential
 from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
+from api.services.access_activation_service import AccessActivationService
 from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
 from api.utils.field_validators import validate_and_format_phone
 
@@ -83,72 +82,11 @@ class DoctorActivationSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        doctor_data = validated_data["interactive_core_doctor"]
-        email = validated_data.get("email") or doctor_data.get("email")
-        if not email:
-            raise serializers.ValidationError({"email": "Se requiere correo para crear credenciales."})
-
-        username = email.lower()
-        user_model = get_user_model()
-        user, _ = user_model.objects.get_or_create(
-            username=username,
-            defaults={
-                "email": email,
-                "first_name": doctor_data.get("full_name", "")[:150],
-                "is_active": True,
-            },
+        return AccessActivationService().activate_doctor(
+            doctor_data=validated_data["interactive_core_doctor"],
+            email=validated_data.get("email"),
+            password=validated_data["password"],
         )
-        user.email = email
-        user.is_active = True
-        user.set_password(validated_data["password"])
-        user.save(update_fields=["email", "is_active", "password"])
-        portal_roles = doctor_data.get("prescript_roles") or [PRESCRIPT_ROLE_DOCTOR]
-        for role in portal_roles:
-            group, _ = Group.objects.get_or_create(name=role)
-            user.groups.add(group)
-
-        profile, _ = DoctorPortalProfile.objects.update_or_create(
-            interactive_core_doctor_id=doctor_data["id"],
-            defaults={
-                "user": user,
-                "full_name": doctor_data.get("full_name") or username,
-                "colegiation_code": doctor_data.get("colegiation_code"),
-                "qualification_code": doctor_data.get("qualification_code"),
-                "final_score": doctor_data.get("final_score"),
-                "phone": doctor_data.get("phone"),
-                "public_email": email,
-                "specialties": doctor_data.get("specialties") or [],
-                "is_top_doctor": doctor_data.get("is_top_doctor", False),
-                "status": "active",
-                "last_synced_at": timezone.now(),
-            },
-        )
-
-        credential, _ = DoctorCredential.objects.update_or_create(
-            doctor=profile,
-            defaults={
-                "username": username,
-                "email": email,
-                "is_portal_enabled": True,
-                "password_set_at": timezone.now(),
-                "last_password_change_at": timezone.now(),
-            },
-        )
-
-        DoctorAccessLog.objects.create(
-            doctor=profile,
-            event_type="password_set",
-            metadata={"source": "doctor_activation"},
-        )
-
-        refresh = RefreshToken.for_user(user)
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "doctor_profile_id": profile.id,
-            "credential_id": credential.id,
-            "roles": portal_roles,
-        }
 
 
 class PortalAccessActivationSerializer(serializers.Serializer):
@@ -181,96 +119,31 @@ class PortalAccessActivationSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        role = validated_data["role"]
-        profile_data = validated_data["interactive_core_profile"]
-        email = validated_data.get("email") or profile_data.get("email")
-        if not email:
-            raise serializers.ValidationError({"email": "Se requiere correo para crear credenciales."})
-
-        username = email.lower()
-        user_model = get_user_model()
-        user, _ = user_model.objects.get_or_create(
-            username=username,
-            defaults={
-                "email": email,
-                "first_name": profile_data.get("full_name", "")[:150],
-                "is_active": True,
-            },
+        return AccessActivationService().activate_portal_access(
+            role=validated_data["role"],
+            profile_data=validated_data["interactive_core_profile"],
+            email=validated_data.get("email"),
+            password=validated_data["password"],
         )
-        user.email = email
-        user.is_active = True
-        user.set_password(validated_data["password"])
-        user.save(update_fields=["email", "is_active", "password"])
 
-        group, _ = Group.objects.get_or_create(name=role)
-        user.groups.add(group)
 
-        response_ids = {}
-        if role == PRESCRIPT_ROLE_DOCTOR:
-            profile, _ = DoctorPortalProfile.objects.update_or_create(
-                interactive_core_doctor_id=profile_data["id"],
-                defaults={
-                    "user": user,
-                    "full_name": profile_data.get("full_name") or username,
-                    "colegiation_code": profile_data.get("colegiation_code"),
-                    "qualification_code": profile_data.get("qualification_code"),
-                    "final_score": profile_data.get("final_score"),
-                    "phone": profile_data.get("phone"),
-                    "public_email": email,
-                    "specialties": profile_data.get("specialties") or [],
-                    "is_top_doctor": profile_data.get("is_top_doctor", False),
-                    "status": "active",
-                    "last_synced_at": timezone.now(),
-                },
-            )
-            DoctorCredential.objects.update_or_create(
-                doctor=profile,
-                defaults={
-                    "username": username,
-                    "email": email,
-                    "is_portal_enabled": True,
-                    "password_set_at": timezone.now(),
-                    "last_password_change_at": timezone.now(),
-                },
-            )
-            response_ids["doctor_profile_id"] = profile.id
-        elif role == PRESCRIPT_ROLE_SECRETARY:
-            profile, _ = SecretaryPortalProfile.objects.update_or_create(
-                secretaria_interactivecore_id=profile_data["id"],
-                defaults={
-                    "user": user,
-                    "full_name": profile_data.get("full_name") or username,
-                    "email": email,
-                    "phone": profile_data.get("phone"),
-                    "country": profile_data.get("country"),
-                    "status": "active",
-                    "last_synced_at": timezone.now(),
-                },
-            )
-            response_ids["secretary_profile_id"] = profile.id
-        elif role == PRESCRIPT_ROLE_NURSE:
-            profile, _ = NursePortalProfile.objects.update_or_create(
-                interactive_core_user_id=profile_data["interactive_core_user_id"],
-                defaults={
-                    "user": user,
-                    "interactive_core_employee_id": profile_data["interactive_core_employee_id"],
-                    "full_name": profile_data.get("full_name") or username,
-                    "email": email,
-                    "phone": profile_data.get("phone"),
-                    "country": profile_data.get("country"),
-                    "status": "active",
-                    "last_synced_at": timezone.now(),
-                },
-            )
-            response_ids["nurse_profile_id"] = profile.id
+class PortalAccessIdentifierValidationSerializer(serializers.Serializer):
+    ROLE_CHOICES = PortalAccessActivationSerializer.ROLE_CHOICES
 
-        refresh = RefreshToken.for_user(user)
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "roles": [role],
-            **response_ids,
-        }
+    role = serializers.ChoiceField(choices=ROLE_CHOICES)
+    identifier = serializers.CharField(max_length=254, write_only=True)
+
+    def validate(self, attrs):
+        role = attrs["role"]
+        profile = InteractiveCoreAccessService().lookup(role, attrs["identifier"].strip())
+        if profile is None:
+            raise serializers.ValidationError({"identifier": "El identificador no es correcto para este rol."})
+
+        if role == PRESCRIPT_ROLE_DOCTOR and profile.get("status") != "active":
+            raise serializers.ValidationError({"identifier": "El doctor no esta activo en Interactive Core."})
+
+        attrs["interactive_core_profile"] = profile
+        return attrs
 
 
 class UserProfileUpdateSerializer(serializers.Serializer):
