@@ -104,6 +104,12 @@ DATABASES = {
     "interactive_core": postgres_config("INTERACTIVE_CORE", "interactivecore_db"),
 }
 
+# El modulo de administracion de usuarios valida el rol ADMIN contra esta BD
+# en cada request; si InteractiveCore esta lento o caido, la consulta debe
+# fallar rapido en vez de colgar el request.
+DATABASES["interactive_core"].setdefault("OPTIONS", {})
+DATABASES["interactive_core"]["OPTIONS"]["options"] = "-c statement_timeout=3000"
+
 legacy_database_url = env("DATABASE_URL", default="")
 if legacy_database_url:
     DATABASES["default"] = env.db("DATABASE_URL")

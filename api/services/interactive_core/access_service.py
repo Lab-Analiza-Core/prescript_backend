@@ -1,10 +1,46 @@
-from django.db import connections
+import logging
 
-from api.roles import PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
+from django.db import DatabaseError, connections
+from rest_framework.exceptions import APIException
+
+from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
 from .doctor_service import InteractiveCoreDoctorService
+
+logger = logging.getLogger(__name__)
+
+
+class InteractiveCoreUnavailable(APIException):
+    status_code = 503
+    default_detail = "No se pudo verificar el rol de administrador en InteractiveCore."
+    default_code = "interactive_core_unavailable"
 
 
 class InteractiveCoreAccessService:
+    def has_admin_role(self, email):
+        normalized_email = str(email or "").strip()
+        if not normalized_email:
+            return False
+
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM api_user u
+                    INNER JOIN api_user_groups ug ON ug.user_id = u.id
+                    INNER JOIN auth_group g ON g.id = ug.group_id
+                    LEFT JOIN api_roleprofile rp ON rp.group_id = g.id
+                    WHERE LOWER(COALESCE(u.email, '')) = LOWER(%s)
+                      AND COALESCE(rp.code, UPPER(g.name)) = %s
+                      AND COALESCE(rp.is_active, TRUE) = TRUE
+                )
+                """,
+                [normalized_email, PRESCRIPT_ROLE_ADMIN],
+            )
+            row = cursor.fetchone()
+
+        return bool(row and row[0])
+
     def lookup(self, role, identifier):
         normalized_role = str(role or "").strip().upper()
         normalized_identifier = str(identifier or "").strip()
@@ -110,3 +146,20 @@ class InteractiveCoreAccessService:
             "prescript_role": role_code,
             "has_prescript_access": True,
         }
+
+
+def user_is_interactive_core_admin(user):
+    """Fuente de verdad para el acceso al modulo de administracion de usuarios.
+
+    Se consulta en vivo en cada request: el Group local "ADMIN" de Prescript
+    no basta por si solo, porque puede asignarse manualmente desde este mismo
+    modulo sin que InteractiveCore respalde ese rol.
+    """
+    email = getattr(user, "email", "") or ""
+    if not email:
+        return False
+    try:
+        return InteractiveCoreAccessService().has_admin_role(email)
+    except DatabaseError:
+        logger.exception("No se pudo verificar el rol ADMIN en InteractiveCore para %s", email)
+        raise InteractiveCoreUnavailable()

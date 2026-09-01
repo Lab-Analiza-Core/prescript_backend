@@ -1,4 +1,4 @@
-from .access_service import InteractiveCoreAccessService
+from .access_service import InteractiveCoreAccessService, InteractiveCoreUnavailable, user_is_interactive_core_admin
 from .catalog_service import InteractiveCoreCatalogService
 from .doctor_service import InteractiveCoreDoctorService
 from .secretary_service import InteractiveCoreSecretaryService
@@ -8,4 +8,6 @@ __all__ = [
     "InteractiveCoreAccessService",
     "InteractiveCoreDoctorService",
     "InteractiveCoreSecretaryService",
+    "InteractiveCoreUnavailable",
+    "user_is_interactive_core_admin",
 ]

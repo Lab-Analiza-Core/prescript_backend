@@ -1,11 +1,20 @@
+from unittest import mock
+
 from django.contrib.auth.models import Group
 from django.test import TestCase
 
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from api.services.interactive_core import InteractiveCoreUnavailable
 from api.test_factories import create_user
 
+
+ADMIN_EMAILS_IN_INTERACTIVE_CORE = {"admin@test.local"}
+
+
+def fake_user_is_interactive_core_admin(user):
+    return getattr(user, "email", "") in ADMIN_EMAILS_IN_INTERACTIVE_CORE
 
 
 class AdminUserManagementTests(TestCase):
@@ -23,6 +32,13 @@ class AdminUserManagementTests(TestCase):
             password="Doctor1234!",
             roles=["DOCTOR"],
         )
+
+        patcher = mock.patch(
+            "api.permissions.admin_permissions.user_is_interactive_core_admin",
+            side_effect=fake_user_is_interactive_core_admin,
+        )
+        self.mock_is_interactive_core_admin = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_admin_can_list_users(self):
         self.client.force_authenticate(self.admin_user)
@@ -74,5 +90,24 @@ class AdminUserManagementTests(TestCase):
         self.doctor_user.refresh_from_db()
         self.assertTrue(self.doctor_user.check_password(response.data["temporary_password"]))
 
+    def test_local_admin_group_without_interactive_core_role_is_denied(self):
+        local_only_admin = create_user(
+            username="fake-admin@test.local",
+            email="fake-admin@test.local",
+            password="FakeAdmin123!",
+            roles=["ADMIN"],
+        )
+        self.client.force_authenticate(local_only_admin)
 
+        response = self.client.get("/api/v1/admin/users")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_module_returns_503_when_interactive_core_is_unreachable(self):
+        self.mock_is_interactive_core_admin.side_effect = InteractiveCoreUnavailable()
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get("/api/v1/admin/users")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
