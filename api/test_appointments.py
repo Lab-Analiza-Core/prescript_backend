@@ -349,6 +349,161 @@ class AppointmentSchedulingTests(TestCase):
         appointment.refresh_from_db()
         self.assertEqual(appointment.status, "rescheduled")
 
+    def test_doctor_can_cancel_existing_appointment(self):
+        appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=self.scheduled_at,
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.patch(
+            f"/api/v1/appointments/{appointment.id}",
+            {"status": "cancelled"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.status, "cancelled")
+        self.assertEqual(response.data["status"], "cancelled")
+
+        replacement_response = self.client.post(
+            "/api/v1/appointments",
+            {
+                "patient": self.patient.id,
+                "scheduled_at": self.scheduled_at.isoformat(),
+                "duration_minutes": 30,
+                "reason": "Cita de reemplazo",
+            },
+            format="json",
+        )
+        self.assertEqual(replacement_response.status_code, status.HTTP_201_CREATED)
+
+    def test_pending_closure_filter_returns_only_past_active_appointments(self):
+        past_appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=timezone.now() - timezone.timedelta(hours=2),
+            duration_minutes=30,
+        )
+        create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=timezone.now() - timezone.timedelta(hours=3),
+            status="attended",
+        )
+        create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=self.scheduled_at,
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.get("/api/v1/appointments?pending_closure=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data], [past_appointment.id])
+
+    def test_doctor_can_close_past_appointments_as_attended_or_no_show(self):
+        attended_appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=timezone.now() - timezone.timedelta(hours=3),
+        )
+        no_show_appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=timezone.now() - timezone.timedelta(hours=2),
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        attended_response = self.client.patch(
+            f"/api/v1/appointments/{attended_appointment.id}",
+            {"status": "attended"},
+            format="json",
+        )
+        no_show_response = self.client.patch(
+            f"/api/v1/appointments/{no_show_appointment.id}",
+            {"status": "no_show"},
+            format="json",
+        )
+
+        self.assertEqual(attended_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(no_show_response.status_code, status.HTTP_200_OK)
+        attended_appointment.refresh_from_db()
+        no_show_appointment.refresh_from_db()
+        self.assertEqual(attended_appointment.status, "attended")
+        self.assertEqual(no_show_appointment.status, "no_show")
+
+    def test_doctor_cannot_cancel_past_appointment(self):
+        appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=timezone.now() - timezone.timedelta(hours=2),
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.patch(
+            f"/api/v1/appointments/{appointment.id}",
+            {"status": "cancelled"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.status, "scheduled")
+
+    def test_doctor_reprograms_past_appointment_without_overwriting_history(self):
+        original_scheduled_at = timezone.now() - timezone.timedelta(days=1)
+        appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=original_scheduled_at,
+            duration_minutes=30,
+            reason="Consulta original",
+        )
+        new_scheduled_at = timezone.now() + timezone.timedelta(days=3)
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.post(
+            f"/api/v1/appointments/{appointment.id}/reschedule",
+            {
+                "scheduled_at": new_scheduled_at.isoformat(),
+                "duration_minutes": 45,
+                "reason": "Nueva fecha",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        appointment.refresh_from_db()
+        replacement = Appointment.objects.get(pk=response.data["id"])
+        self.assertEqual(appointment.status, "superseded")
+        self.assertEqual(appointment.scheduled_at, original_scheduled_at)
+        self.assertEqual(replacement.status, "scheduled")
+        self.assertEqual(replacement.patient, self.patient)
+        self.assertEqual(replacement.doctor, self.doctor)
+        self.assertEqual(replacement.duration_minutes, 45)
+
+    def test_doctor_cannot_close_future_appointment_as_attended(self):
+        appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=self.scheduled_at,
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.patch(
+            f"/api/v1/appointments/{appointment.id}",
+            {"status": "attended"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.status, "scheduled")
+
     @patch("api.services.secretary_access.InteractiveCoreSecretaryService.get_assigned_doctor_ids")
     def test_secretary_cannot_reschedule_to_the_past(self, get_assigned_doctor_ids):
         get_assigned_doctor_ids.return_value = [self.doctor.interactive_core_doctor_id]

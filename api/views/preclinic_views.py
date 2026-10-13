@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.db.models import Q
@@ -8,7 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from api.models import Appointment, Patient, PatientVitals
+from api.models import Appointment, Patient, PatientMedicalProfile, PatientVitals
 from api.services.preclinic_service import (
     accessible_appointments,
     accessible_patients,
@@ -17,7 +18,7 @@ from api.services.preclinic_service import (
     is_pediatric_specialty_holder,
     patient_payload,
 )
-from api.serializers.patient_serializers import PreclinicVitalsSerializer
+from api.serializers.patient_serializers import PatientMedicalProfileSerializer, PreclinicVitalsSerializer
 from api.services.country_scope import get_country_scope
 
 
@@ -27,6 +28,37 @@ def _requested_date(request):
     if not parsed_date:
         return None
     return parsed_date
+
+
+def _medical_profile_serializer(patient, request_data):
+    if "medical_profile" not in request_data:
+        return None
+
+    try:
+        instance = patient.medical_profile
+    except PatientMedicalProfile.DoesNotExist:
+        instance = None
+
+    serializer = PatientMedicalProfileSerializer(
+        instance,
+        data=request_data.get("medical_profile"),
+        partial=True,
+    )
+    serializer.is_valid(raise_exception=True)
+    return serializer
+
+
+def _vitals_payload(request_data):
+    payload = request_data.copy()
+    payload.pop("medical_profile", None)
+    return payload
+
+
+def _save_medical_profile(serializer, patient):
+    if serializer is None:
+        return
+    serializer.save(patient=patient)
+    patient._state.fields_cache.pop("medical_profile", None)
 
 
 @api_view(["GET"])
@@ -70,14 +102,17 @@ def preclinic_vitals_upsert_view(request, appointment_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    payload = request.data.copy()
+    profile_serializer = _medical_profile_serializer(appointment.patient, request.data)
+    payload = _vitals_payload(request.data)
     if not is_pediatric_specialty_holder(appointment):
         payload["height_cm"] = None
 
     instance = getattr(appointment, "vitals", None)
     serializer = PreclinicVitalsSerializer(instance, data=payload, partial=True)
     serializer.is_valid(raise_exception=True)
-    serializer.save(patient=appointment.patient, appointment=appointment)
+    with transaction.atomic():
+        _save_medical_profile(profile_serializer, appointment.patient)
+        serializer.save(patient=appointment.patient, appointment=appointment)
 
     return Response(appointment_payload(appointment))
 
@@ -90,7 +125,8 @@ def preclinic_patient_vitals_upsert_view(request, patient_id):
     except Patient.DoesNotExist:
         return Response({"detail": "Paciente no encontrado para preclinica."}, status=status.HTTP_404_NOT_FOUND)
 
-    payload = request.data.copy()
+    profile_serializer = _medical_profile_serializer(patient, request.data)
+    payload = _vitals_payload(request.data)
     if not is_pediatric_specialty_holder(patient):
         payload["height_cm"] = None
 
@@ -110,7 +146,9 @@ def preclinic_patient_vitals_upsert_view(request, patient_id):
     )
     serializer = PreclinicVitalsSerializer(instance, data=payload, partial=True)
     serializer.is_valid(raise_exception=True)
-    vitals = serializer.save(patient=patient, appointment=None)
+    with transaction.atomic():
+        _save_medical_profile(profile_serializer, patient)
+        vitals = serializer.save(patient=patient, appointment=None)
     getattr(patient, "_prefetched_objects_cache", {}).pop("vitals", None)
     if not instance and selected_date != timezone.localdate():
         selected_datetime = timezone.make_aware(

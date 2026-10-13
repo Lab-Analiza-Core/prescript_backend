@@ -8,6 +8,7 @@ class Appointment(models.Model):
         ("cancelled", "Cancelada"),
         ("no_show", "No se presento"),
         ("rescheduled", "Reprogramada"),
+        ("superseded", "Reprogramada y reemplazada"),
     ]
 
     doctor = models.ForeignKey(

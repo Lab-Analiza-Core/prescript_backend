@@ -4,7 +4,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from api.models import PatientVitals
+from api.models import PatientMedicalProfile, PatientVitals
 from api.test_factories import create_appointment, create_doctor, create_patient, create_user, create_vitals
 
 
@@ -53,6 +53,12 @@ class PreclinicTests(TestCase):
         self.client.force_authenticate(self.user)
 
     def test_preclinic_carries_persistent_values_only(self):
+        PatientMedicalProfile.objects.create(
+            patient=self.patient,
+            allergies=["Penicilina"],
+            blood_type="O+",
+        )
+
         response = self.client.get("/api/v1/preclinic/appointments")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -65,6 +71,8 @@ class PreclinicTests(TestCase):
         self.assertEqual(str(appointment["comparison_vitals"]["weight_kg"]), "22.50")
         self.assertNotIn("temperature", appointment["comparison_vitals"])
         self.assertNotIn("oxygen_saturation", appointment["comparison_vitals"])
+        self.assertEqual(appointment["medical_profile"]["allergies"], ["Penicilina"])
+        self.assertEqual(appointment["medical_profile"]["blood_type"], "O+")
 
     def test_preclinic_saves_current_appointment_vitals(self):
         response = self.client.patch(
@@ -85,6 +93,29 @@ class PreclinicTests(TestCase):
         self.assertEqual(vitals.blood_pressure_systolic, 112)
         self.assertEqual(str(vitals.oxygen_saturation), "97.50")
         self.assertEqual(str(vitals.height_cm), "121.00")
+
+    def test_preclinic_saves_medical_profile_with_vitals(self):
+        response = self.client.patch(
+            f"/api/v1/preclinic/appointments/{self.appointment.id}/vitals",
+            {
+                "medical_profile": {
+                    "allergies": ["Penicilina", "Mariscos"],
+                    "chronic_conditions": ["Hipertension"],
+                    "blood_type": "A+",
+                    "clinical_notes": "Controlar presion en cada visita.",
+                },
+                "blood_pressure_systolic": 118,
+                "blood_pressure_diastolic": 76,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient.medical_profile.refresh_from_db()
+        self.assertEqual(self.patient.medical_profile.allergies, ["Penicilina", "Mariscos"])
+        self.assertEqual(self.patient.medical_profile.chronic_conditions, ["Hipertension"])
+        self.assertEqual(self.patient.medical_profile.blood_type, "A+")
+        self.assertEqual(response.data["medical_profile"]["clinical_notes"], "Controlar presion en cada visita.")
 
     def test_preclinic_rejects_future_appointment_vitals(self):
         future_appointment = create_appointment(
@@ -120,7 +151,12 @@ class PreclinicTests(TestCase):
 
         first_response = self.client.patch(
             f"/api/v1/preclinic/patients/{self.patient.id}/vitals?date={selected_date}",
-            {"blood_pressure_systolic": 118, "blood_pressure_diastolic": 78, "weight_kg": "23.00"},
+            {
+                "medical_profile": {"chronic_conditions": ["Asma"], "blood_type": "B+"},
+                "blood_pressure_systolic": 118,
+                "blood_pressure_diastolic": 78,
+                "weight_kg": "23.00",
+            },
             format="json",
         )
         second_response = self.client.patch(
@@ -139,6 +175,8 @@ class PreclinicTests(TestCase):
         self.assertEqual(daily_vitals.count(), 1)
         self.assertEqual(daily_vitals.get().blood_pressure_systolic, 120)
         self.assertEqual(str(second_response.data["current_vitals"]["weight_kg"]), "23.40")
+        self.assertEqual(second_response.data["medical_profile"]["chronic_conditions"], ["Asma"])
+        self.assertEqual(second_response.data["medical_profile"]["blood_type"], "B+")
 
     def test_patient_preclinic_vitals_reject_invalid_date(self):
         response = self.client.patch(

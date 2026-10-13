@@ -1,11 +1,11 @@
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from api.models import Appointment, Patient, PatientVitals
+from api.models import Appointment, Patient, PatientMedicalProfile, PatientVitals
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE
 from api.services.patient_access import country_scoped_patient_queryset
 from api.services.role_access import get_current_prescript_role
-from api.serializers.patient_serializers import PreclinicVitalsSerializer
+from api.serializers.patient_serializers import PatientMedicalProfileSerializer, PreclinicVitalsSerializer
 
 
 def is_future_date(value):
@@ -23,7 +23,7 @@ def is_pediatric_specialty_holder(value):
 
 def accessible_appointments(user, scope):
     queryset = (
-        Appointment.objects.select_related("doctor", "patient", "vitals")
+        Appointment.objects.select_related("doctor", "patient", "patient__medical_profile", "vitals")
         .prefetch_related(Prefetch("patient__vitals", queryset=PatientVitals.objects.order_by("-recorded_at")))
         .order_by("scheduled_at")
     )
@@ -40,7 +40,7 @@ def accessible_appointments(user, scope):
 
 def accessible_patients(user, scope):
     queryset = (
-        Patient.objects.select_related("doctor")
+        Patient.objects.select_related("doctor", "medical_profile")
         .prefetch_related(Prefetch("vitals", queryset=PatientVitals.objects.order_by("-recorded_at")))
         .order_by("last_name", "first_name")
     )
@@ -60,6 +60,19 @@ def vitals_payload(vitals):
         "weight_kg": vitals.weight_kg,
         "recorded_at": vitals.recorded_at,
     }
+
+
+def medical_profile_payload(patient):
+    try:
+        profile = patient.medical_profile
+    except PatientMedicalProfile.DoesNotExist:
+        return {
+            "allergies": [],
+            "chronic_conditions": [],
+            "blood_type": None,
+            "clinical_notes": None,
+        }
+    return PatientMedicalProfileSerializer(profile).data
 
 
 def comparison_vitals(appointment):
@@ -108,6 +121,7 @@ def appointment_payload(appointment):
         "status": appointment.status,
         "reason": appointment.reason,
         "is_pediatric": is_pediatric_specialty_holder(appointment),
+        "medical_profile": medical_profile_payload(appointment.patient),
         "current_vitals": PreclinicVitalsSerializer(current_vitals).data if current_vitals else None,
         "comparison_vitals": comparison_vitals(appointment),
     }
@@ -146,6 +160,7 @@ def patient_payload(patient, selected_date=None):
         "status": "registered",
         "reason": "Paciente registrado",
         "is_pediatric": is_pediatric_specialty_holder(patient),
+        "medical_profile": medical_profile_payload(patient),
         "current_vitals": PreclinicVitalsSerializer(current_vitals).data if current_vitals else None,
         "comparison_vitals": patient_comparison_vitals(patient, current_vitals),
         "source": "patient",

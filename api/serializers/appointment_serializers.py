@@ -13,6 +13,7 @@ APPOINTMENT_TIME_CONFLICT_MESSAGE = (
     "Elige otra hora disponible para continuar."
 )
 ACTIVE_APPOINTMENT_STATUSES = ("scheduled", "rescheduled")
+TERMINAL_APPOINTMENT_STATUSES = ("attended", "cancelled", "no_show", "superseded")
 
 
 class AppointmentSerializer(serializers.ModelSerializer):
@@ -102,12 +103,35 @@ class AppointmentSerializer(serializers.ModelSerializer):
         patient = attrs.get("patient") or getattr(self.instance, "patient", None)
         scheduled_at = attrs.get("scheduled_at") or getattr(self.instance, "scheduled_at", None)
         duration_minutes = attrs.get("duration_minutes") or getattr(self.instance, "duration_minutes", 30)
+        incoming_status = attrs.get("status")
 
         if request and doctor and not get_country_scope(request).require_valid().allows(doctor.country_id):
             raise serializers.ValidationError({"doctor": "El doctor no pertenece al pais activo."})
 
         if doctor and patient and patient.doctor_id != doctor.id:
             raise serializers.ValidationError({"patient": "El paciente no pertenece al doctor seleccionado."})
+
+        if self.instance and incoming_status:
+            appointment_end = scheduled_at + timezone.timedelta(minutes=duration_minutes)
+            if self.instance.status in TERMINAL_APPOINTMENT_STATUSES and incoming_status != self.instance.status:
+                raise serializers.ValidationError({"status": "Una cita cerrada no puede cambiar de estado."})
+            if incoming_status in {"attended", "no_show"} and appointment_end > timezone.now():
+                raise serializers.ValidationError(
+                    {"status": "La cita solo puede cerrarse despues de que finalice su horario."}
+                )
+            if incoming_status == "cancelled" and appointment_end <= timezone.now():
+                raise serializers.ValidationError(
+                    {"status": "Una cita vencida debe marcarse como atendida, no presentada o reprogramarse."}
+                )
+            if incoming_status in ACTIVE_APPOINTMENT_STATUSES and appointment_end <= timezone.now():
+                raise serializers.ValidationError(
+                    {"status": "La cita vencida debe cerrarse antes de continuar."}
+                )
+            if incoming_status == "superseded":
+                raise serializers.ValidationError({"status": "Use la accion de reprogramar una cita vencida."})
+
+        if self.instance is None and incoming_status not in {None, "scheduled"}:
+            raise serializers.ValidationError({"status": "Las citas nuevas deben iniciar como agendadas."})
 
         is_scheduling = self.instance is None or bool({"scheduled_at", "patient", "doctor"} & incoming_fields)
         if is_scheduling and patient and scheduled_at:

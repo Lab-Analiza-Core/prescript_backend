@@ -7,7 +7,7 @@ from api.views.auth_views import (
     PortalAccessActivationView,
     PortalAccessIdentifierValidationView,
 )
-from api.views.appointment_views import AppointmentDetailView, AppointmentListCreateView
+from api.views.appointment_views import AppointmentDetailView, AppointmentListCreateView, AppointmentPastRescheduleView
 from api.views.catalog_views import ExamCatalogListView, MedicineCatalogListView, RecommendedMedicineListView
 from api.views.doctor_views import (
     auth_me_view,
@@ -55,6 +55,7 @@ urlpatterns = [
     path("preclinic/patients/<int:patient_id>/vitals", preclinic_patient_vitals_upsert_view, name="preclinic-patient-vitals-upsert"),
     path("appointments", AppointmentListCreateView.as_view(), name="appointment-list-create"),
     path("appointments/<int:pk>", AppointmentDetailView.as_view(), name="appointment-detail"),
+    path("appointments/<int:pk>/reschedule", AppointmentPastRescheduleView.as_view(), name="appointment-past-reschedule"),
     path("prescriptions", PrescriptionListCreateView.as_view(), name="prescription-list-create"),
     path("prescriptions/<int:pk>", PrescriptionDetailView.as_view(), name="prescription-detail"),
 ]
