@@ -5,9 +5,17 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from api.models import DoctorAccessLog, DoctorCredential, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
+from api.models import (
+    DoctorAccessLog,
+    DoctorCredential,
+    DoctorPortalProfile,
+    NursePortalProfile,
+    SecretaryPortalProfile,
+    UserCountryAccess,
+)
 from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
 from api.services.doctor_display import get_doctor_sex_from_profile_data
+from api.services.country_service import get_or_create_country
 
 
 class AccessActivationService:
@@ -44,6 +52,7 @@ class AccessActivationService:
         }
 
     def _activate_doctor_profile(self, user, doctor_data, email):
+        country = get_or_create_country(doctor_data)
         profile, _ = DoctorPortalProfile.objects.update_or_create(
             interactive_core_doctor_id=doctor_data["id"],
             defaults={
@@ -53,9 +62,11 @@ class AccessActivationService:
                 "colegiation_code": doctor_data.get("colegiation_code"),
                 "qualification_code": doctor_data.get("qualification_code"),
                 "final_score": doctor_data.get("final_score"),
+                "country": country,
                 "phone": doctor_data.get("phone"),
                 "public_email": email,
                 "specialties": doctor_data.get("specialties") or [],
+                "clinics": doctor_data.get("clinics") or [],
                 "is_top_doctor": doctor_data.get("is_top_doctor", False),
                 "status": "active",
                 "last_synced_at": timezone.now(),
@@ -74,6 +85,16 @@ class AccessActivationService:
         )
         return profile, credential
 
+    def _sync_country_access(self, user, role, country):
+        if not country:
+            return
+        UserCountryAccess.objects.update_or_create(
+            user=user,
+            role_code=role,
+            country=country,
+            defaults={"is_active": True},
+        )
+
     @transaction.atomic
     def activate_doctor(self, doctor_data, email, password):
         access_email = email or doctor_data.get("email")
@@ -81,6 +102,7 @@ class AccessActivationService:
         portal_roles = doctor_data.get("prescript_roles") or [PRESCRIPT_ROLE_DOCTOR]
         self._add_roles(user, portal_roles)
         profile, credential = self._activate_doctor_profile(user, doctor_data, access_email)
+        self._sync_country_access(user, PRESCRIPT_ROLE_DOCTOR, profile.country)
 
         DoctorAccessLog.objects.create(
             doctor=profile,
@@ -100,6 +122,7 @@ class AccessActivationService:
         access_email = email or profile_data.get("email")
         user = self._create_or_update_user(profile_data, access_email, password)
         self._add_roles(user, [role])
+        country = get_or_create_country(profile_data)
 
         response_ids = {}
         if role == PRESCRIPT_ROLE_DOCTOR:
@@ -113,7 +136,7 @@ class AccessActivationService:
                     "full_name": profile_data.get("full_name") or access_email.lower(),
                     "email": access_email,
                     "phone": profile_data.get("phone"),
-                    "country": profile_data.get("country"),
+                    "country": country,
                     "status": "active",
                     "last_synced_at": timezone.now(),
                 },
@@ -128,12 +151,14 @@ class AccessActivationService:
                     "full_name": profile_data.get("full_name") or access_email.lower(),
                     "email": access_email,
                     "phone": profile_data.get("phone"),
-                    "country": profile_data.get("country"),
+                    "country": country,
                     "status": "active",
                     "last_synced_at": timezone.now(),
                 },
             )
             response_ids["nurse_profile_id"] = profile.id
+
+        self._sync_country_access(user, role, country)
 
         return {
             **self._token_payload(user),

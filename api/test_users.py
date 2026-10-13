@@ -67,6 +67,7 @@ class AdminUserManagementTests(TestCase):
                 "last_name": "Secretaria",
                 "password": "Temporal123!",
                 "roles": ["SECRETARY"],
+                "country_code": "HN",
                 "is_active": True,
             },
             format="json",

@@ -28,6 +28,12 @@ COUNTRY_FIELD_FORMATS = {
 
 
 def get_country_format(country):
+    if country and hasattr(country, "code"):
+        return {
+            "dni_mask": getattr(country, "dni_mask", "") or "",
+            "phone_mask": getattr(country, "phone_mask", "") or "",
+            "phone_code": digits_only(getattr(country, "phone_code", "")),
+        }
     country_code = str(country or "HN").strip().upper()
     return COUNTRY_FIELD_FORMATS.get(country_code, COUNTRY_FIELD_FORMATS["HN"])
 

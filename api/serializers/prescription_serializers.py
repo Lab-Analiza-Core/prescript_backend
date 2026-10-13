@@ -40,6 +40,21 @@ class PrescriptionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "doctor", "created_at", "updated_at"]
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        doctor = getattr(getattr(request, "user", None), "doctor_portal_profile", None)
+        patient = attrs.get("patient")
+        appointment = attrs.get("appointment")
+        if doctor and patient and patient.doctor_id != doctor.id:
+            raise serializers.ValidationError({"patient": "El paciente no pertenece al doctor autenticado."})
+        if doctor and appointment and appointment.doctor_id != doctor.id:
+            raise serializers.ValidationError({"appointment": "La cita no pertenece al doctor autenticado."})
+        for item in attrs.get("items", []):
+            medicine = item.get("medicine")
+            if doctor and medicine and medicine.country_id != doctor.country_id:
+                raise serializers.ValidationError({"items": "Todos los medicamentos deben pertenecer al pais del doctor."})
+        return attrs
+
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
         prescription = Prescription.objects.create(**validated_data)

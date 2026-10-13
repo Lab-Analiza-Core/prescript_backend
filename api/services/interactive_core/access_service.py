@@ -1,9 +1,14 @@
 import logging
 
+from django.contrib.auth.models import Group
+from django.conf import settings
 from django.db import DatabaseError, connections
 from rest_framework.exceptions import APIException
 
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
+from api.models import UserCountryAccess
+from api.roles import COUNTRY_ADMIN_ROLE_PREFIX, normalize_prescript_role
+from api.services.country_service import get_or_create_country
 from .doctor_service import InteractiveCoreDoctorService
 
 logger = logging.getLogger(__name__)
@@ -16,6 +21,96 @@ class InteractiveCoreUnavailable(APIException):
 
 
 class InteractiveCoreAccessService:
+    def get_user_workspaces(self, email):
+        normalized_email = str(email or "").strip()
+        if not normalized_email:
+            return []
+
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    COALESCE(rp.code, UPPER(g.name)) AS role_code,
+                    COALESCE(rp.is_admin, FALSE) AS is_admin,
+                    c.id,
+                    c.code,
+                    c.name,
+                    c.currency,
+                    c.phone_code,
+                    c.dni_mask,
+                    c.phone_mask,
+                    c.timezone
+                FROM api_user u
+                INNER JOIN api_user_groups ug ON ug.user_id = u.id
+                INNER JOIN auth_group g ON g.id = ug.group_id
+                LEFT JOIN api_roleprofile rp ON rp.group_id = g.id
+                LEFT JOIN employee_profile ep ON ep.user_id = u.id
+                LEFT JOIN api_country c ON c.id = COALESCE(rp.country_id, ep.country_id)
+                WHERE LOWER(COALESCE(u.email, '')) = LOWER(%s)
+                  AND COALESCE(rp.is_active, TRUE) = TRUE
+                ORDER BY COALESCE(rp.sort_order, 0), g.name
+                """,
+                [normalized_email],
+            )
+            rows = cursor.fetchall()
+
+        workspaces = []
+        allowed_roles = {str(role).upper() for role in settings.PRESCRIPT_INTERACTIVE_CORE_PORTAL_ROLES}
+        for row in rows:
+            role_code = str(row[0] or "").upper()
+            is_admin = bool(row[1])
+            if not is_admin and normalize_prescript_role(role_code) not in allowed_roles:
+                continue
+            country = None
+            if row[2]:
+                country = {
+                    "id": row[2],
+                    "code": row[3],
+                    "name": row[4],
+                    "currency": row[5],
+                    "phone_code": row[6],
+                    "dni_mask": row[7],
+                    "phone_mask": row[8],
+                    "timezone": row[9],
+                }
+            workspaces.append({"role_code": role_code, "is_admin": is_admin, "country": country})
+        return workspaces
+
+    def sync_user_workspaces(self, user):
+        workspaces = self.get_user_workspaces(user.email)
+        UserCountryAccess.objects.filter(user=user, source="interactive_core").delete()
+        admin_groups = list(
+            user.groups.filter(name__startswith=COUNTRY_ADMIN_ROLE_PREFIX)
+        )
+        admin_groups.extend(user.groups.filter(name=PRESCRIPT_ROLE_ADMIN))
+        if admin_groups:
+            user.groups.remove(*admin_groups)
+
+        if not workspaces:
+            return []
+
+        synced = []
+        for workspace in workspaces:
+            source_country = workspace["country"]
+            country = get_or_create_country(
+                {
+                    "country": source_country,
+                    "country_id": source_country.get("id") if source_country else None,
+                }
+            ) if source_country else None
+            role_code = workspace["role_code"]
+            canonical_role = PRESCRIPT_ROLE_ADMIN if workspace["is_admin"] else normalize_prescript_role(role_code)
+            local_group_code = role_code if workspace["is_admin"] else canonical_role
+            group, _ = Group.objects.get_or_create(name=local_group_code)
+            user.groups.add(group)
+            access, _ = UserCountryAccess.objects.update_or_create(
+                user=user,
+                role_code=canonical_role,
+                country=country,
+                defaults={"is_active": True, "source": "interactive_core"},
+            )
+            synced.append(access)
+        return synced
     def has_admin_role(self, email):
         normalized_email = str(email or "").strip()
         if not normalized_email:
@@ -31,7 +126,10 @@ class InteractiveCoreAccessService:
                     INNER JOIN auth_group g ON g.id = ug.group_id
                     LEFT JOIN api_roleprofile rp ON rp.group_id = g.id
                     WHERE LOWER(COALESCE(u.email, '')) = LOWER(%s)
-                      AND COALESCE(rp.code, UPPER(g.name)) = %s
+                      AND (
+                          COALESCE(rp.is_admin, FALSE) = TRUE
+                          OR COALESCE(rp.code, UPPER(g.name)) = %s
+                      )
                       AND COALESCE(rp.is_active, TRUE) = TRUE
                 )
                 """,

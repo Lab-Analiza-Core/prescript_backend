@@ -3,7 +3,8 @@ from rest_framework.exceptions import PermissionDenied
 
 from api.models import PatientVitals
 from api.serializers import PatientSerializer, PatientVitalsSerializer
-from api.services.patient_access import accessible_patient_queryset, save_patient_for_user
+from api.services.patient_access import country_scoped_patient_queryset, save_patient_for_user
+from api.services.country_scope import get_country_scope
 from api.views.doctor_views import get_current_doctor
 
 
@@ -12,20 +13,32 @@ class PatientListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         include_inactive = self.request.query_params.get("include_inactive") == "true"
-        return accessible_patient_queryset(self.request.user, include_inactive=include_inactive)
+        return country_scoped_patient_queryset(
+            self.request.user,
+            get_country_scope(self.request),
+            include_inactive=include_inactive,
+        )
 
     def perform_create(self, serializer):
-        save_patient_for_user(serializer, self.request.user)
+        save_patient_for_user(serializer, self.request.user, scope=get_country_scope(self.request))
 
 
 class PatientDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = PatientSerializer
 
     def get_queryset(self):
-        return accessible_patient_queryset(self.request.user).select_related("medical_profile")
+        return country_scoped_patient_queryset(
+            self.request.user,
+            get_country_scope(self.request),
+        ).select_related("medical_profile")
 
     def perform_update(self, serializer):
-        save_patient_for_user(serializer, self.request.user, patient=self.get_object())
+        save_patient_for_user(
+            serializer,
+            self.request.user,
+            patient=self.get_object(),
+            scope=get_country_scope(self.request),
+        )
 
 
 class PatientVitalsListCreateView(generics.ListCreateAPIView):

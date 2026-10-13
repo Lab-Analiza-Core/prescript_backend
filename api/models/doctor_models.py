@@ -25,12 +25,19 @@ class DoctorPortalProfile(models.Model):
     colegiation_code = models.CharField(max_length=50, blank=True, null=True)
     qualification_code = models.CharField(max_length=100, blank=True, null=True)
     final_score = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
-    country = models.CharField(max_length=80, blank=True, null=True)
+    country = models.ForeignKey(
+        "Country",
+        on_delete=models.PROTECT,
+        related_name="doctors",
+        blank=True,
+        null=True,
+    )
     company = models.CharField(max_length=120, blank=True, null=True)
     zone = models.CharField(max_length=120, blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
     public_email = models.EmailField(blank=True, null=True)
     specialties = models.JSONField(default=list, blank=True)
+    clinics = models.JSONField(default=list, blank=True)
     preferences = models.JSONField(default=dict, blank=True)
     is_top_doctor = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
@@ -123,7 +130,13 @@ class SecretaryPortalProfile(models.Model):
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
-    country = models.CharField(max_length=80, blank=True, null=True)
+    country = models.ForeignKey(
+        "Country",
+        on_delete=models.PROTECT,
+        related_name="secretaries",
+        blank=True,
+        null=True,
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
     last_synced_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -153,7 +166,13 @@ class NursePortalProfile(models.Model):
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
-    country = models.CharField(max_length=80, blank=True, null=True)
+    country = models.ForeignKey(
+        "Country",
+        on_delete=models.PROTECT,
+        related_name="nurses",
+        blank=True,
+        null=True,
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
     last_synced_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

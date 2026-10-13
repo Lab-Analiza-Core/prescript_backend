@@ -24,6 +24,10 @@ El backend mantiene sus datos operativos en PostgreSQL y puede consultar informa
 - `appointments`: agenda de citas.
 - `prescriptions`: creacion y consulta de recetas.
 - `services/interactive_core`: integracion con Interactive Core.
+- `services/country_scope`: aislamiento por pais y seleccion del workspace activo.
+
+La arquitectura multipais, sus roles y la estrategia de migracion estan
+documentados en [`docs/multi-country.md`](docs/multi-country.md).
 
 ## Requisitos
 

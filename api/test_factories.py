@@ -1,10 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
-from api.models import Appointment, DoctorPortalProfile, NursePortalProfile, Patient, PatientVitals, SecretaryPortalProfile
+from api.models import Appointment, Country, DoctorPortalProfile, NursePortalProfile, Patient, PatientVitals, SecretaryPortalProfile
 
 
 DEFAULT_PASSWORD = "Doctor1234!"
+
+
+def get_country(value="HN"):
+    if isinstance(value, Country):
+        return value
+    return Country.objects.get(code=str(value or "HN").upper())
 
 
 def create_user(username, email=None, password=DEFAULT_PASSWORD, roles=None, **extra_fields):
@@ -30,6 +36,7 @@ def create_doctor(user=None, interactive_core_doctor_id=200, **overrides):
         "interactive_core_doctor_id": interactive_core_doctor_id,
         "full_name": "Dra. Prescript",
         "status": "active",
+        "country": get_country(overrides.pop("country", "HN")),
     }
     defaults.update(overrides)
     return DoctorPortalProfile.objects.create(**defaults)
@@ -46,6 +53,7 @@ def create_secretary(user=None, secretaria_interactivecore_id=700, **overrides):
         "full_name": "Secretaria Prescript",
         "email": user.email,
         "status": "active",
+        "country": get_country(overrides.pop("country", "HN")),
     }
     defaults.update(overrides)
     return SecretaryPortalProfile.objects.create(**defaults)
@@ -63,6 +71,7 @@ def create_nurse(user=None, interactive_core_user_id=700, interactive_core_emplo
         "full_name": "Enfermera Prescript",
         "email": user.email,
         "status": "active",
+        "country": get_country(overrides.pop("country", "HN")),
     }
     defaults.update(overrides)
     return NursePortalProfile.objects.create(**defaults)

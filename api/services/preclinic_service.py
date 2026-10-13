@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from api.models import Appointment, Patient, PatientVitals
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE
-from api.services.patient_access import accessible_patient_queryset
+from api.services.patient_access import country_scoped_patient_queryset
 from api.services.role_access import get_current_prescript_role
 from api.serializers.patient_serializers import PreclinicVitalsSerializer
 
@@ -21,7 +21,7 @@ def is_pediatric_specialty_holder(value):
     return False
 
 
-def accessible_appointments(user):
+def accessible_appointments(user, scope):
     queryset = (
         Appointment.objects.select_related("doctor", "patient", "vitals")
         .prefetch_related(Prefetch("patient__vitals", queryset=PatientVitals.objects.order_by("-recorded_at")))
@@ -29,22 +29,27 @@ def accessible_appointments(user):
     )
     doctor = getattr(user, "doctor_portal_profile", None)
     if doctor:
-        return queryset.filter(doctor=doctor)
+        return scope.require_valid().filter(queryset.filter(doctor=doctor), field="doctor__country_id")
 
     role = get_current_prescript_role(user)
     if role in {PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_ADMIN}:
-        return queryset
+        return scope.require_valid().filter(queryset, field="doctor__country_id")
 
     return queryset.none()
 
 
-def accessible_patients(user):
+def accessible_patients(user, scope):
     queryset = (
         Patient.objects.select_related("doctor")
         .prefetch_related(Prefetch("vitals", queryset=PatientVitals.objects.order_by("-recorded_at")))
         .order_by("last_name", "first_name")
     )
-    return accessible_patient_queryset(user, queryset=queryset, include_inactive=False)
+    return country_scoped_patient_queryset(
+        user,
+        scope,
+        queryset=queryset,
+        include_inactive=False,
+    )
 
 
 def vitals_payload(vitals):

@@ -3,6 +3,7 @@ PRESCRIPT_ROLE_SECRETARY = "SECRETARY"
 PRESCRIPT_ROLE_NURSE = "NURSE"
 PRESCRIPT_ROLE_ADMIN = "ADMIN"
 PRESCRIPT_ROLE_MANAGER = "COUNTRY_MANAGER"
+COUNTRY_ADMIN_ROLE_PREFIX = "ADMIN_"
 
 PRESCRIPT_ROLE_CHOICES = (
     PRESCRIPT_ROLE_DOCTOR,
@@ -42,8 +43,15 @@ ROLE_ALIASES = {
 
 
 def normalize_prescript_role(role):
-    normalized = str(role or "").strip().lower().replace("_", " ")
+    raw_role = str(role or "").strip().upper()
+    if raw_role.startswith(COUNTRY_ADMIN_ROLE_PREFIX):
+        return PRESCRIPT_ROLE_ADMIN
+    normalized = raw_role.lower().replace("_", " ")
     return ROLE_ALIASES.get(normalized, normalized)
+
+
+def is_country_admin_role(role):
+    return str(role or "").strip().upper().startswith(COUNTRY_ADMIN_ROLE_PREFIX)
 
 
 def normalize_prescript_roles(roles):

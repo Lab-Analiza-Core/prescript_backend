@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import connections
+from django.utils import timezone
 
 from api.roles import (
     PRESCRIPT_ROLE_DOCTOR,
@@ -21,7 +22,14 @@ class InteractiveCoreDoctorService:
         return self.client.get("doctors/search", params={"colegiation_code": colegiation_code})
 
     def get_doctor(self, interactive_core_doctor_id):
-        return self.client.get(f"doctors/{interactive_core_doctor_id}")
+        if self.client.base_url:
+            response = self.client.get(f"doctor/{interactive_core_doctor_id}")
+            doctor = response.get("doctor", response) if isinstance(response, dict) else response
+            if doctor:
+                doctor["specialties"] = doctor.get("specialties") or doctor.get("specialty") or []
+                doctor["clinics"] = doctor.get("clinics") or doctor.get("clinic") or []
+            return doctor
+        return self.get_doctor_from_local_db(interactive_core_doctor_id)
 
     def update_doctor_public_profile(self, interactive_core_doctor_id, payload):
         allowed_payload = {
@@ -40,6 +48,14 @@ class InteractiveCoreDoctorService:
         return self.lookup_doctor_from_local_db(identifier)
 
     def lookup_doctor_from_local_db(self, identifier):
+        return self._fetch_doctor_from_local_db(identifier=identifier)
+
+    def get_doctor_from_local_db(self, interactive_core_doctor_id):
+        return self._fetch_doctor_from_local_db(
+            interactive_core_doctor_id=interactive_core_doctor_id,
+        )
+
+    def _fetch_doctor_from_local_db(self, interactive_core_doctor_id=None, identifier=""):
         with connections["interactive_core"].cursor() as cursor:
             cursor.execute(
                 """
@@ -53,15 +69,36 @@ class InteractiveCoreDoctorService:
                     d.status,
                     d.final_score,
                     d.user_id,
-                    dc.name AS classification_name
+                    dc.name AS classification_name,
+                    d.country_id,
+                    c.code AS country_code,
+                    c.name AS country_name,
+                    c.currency,
+                    c.phone_code,
+                    c.dni_mask,
+                    c.phone_mask,
+                    c.timezone
                 FROM api_doctor d
                 LEFT JOIN doctor_classification dc ON dc.id = d.classification_id
-                WHERE LOWER(COALESCE(d.email, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(d.colegiation_code, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(d.dni, '')) = LOWER(%s)
+                LEFT JOIN api_country c ON c.id = d.country_id
+                WHERE d.id = COALESCE(%s, -1)
+                   OR (
+                        %s <> ''
+                        AND (
+                            LOWER(COALESCE(d.email, '')) = LOWER(%s)
+                            OR LOWER(COALESCE(d.colegiation_code, '')) = LOWER(%s)
+                            OR LOWER(COALESCE(d.dni, '')) = LOWER(%s)
+                        )
+                   )
                 LIMIT 1
                 """,
-                [identifier, identifier, identifier],
+                [
+                    interactive_core_doctor_id,
+                    identifier,
+                    identifier,
+                    identifier,
+                    identifier,
+                ],
             )
             row = cursor.fetchone()
 
@@ -79,7 +116,21 @@ class InteractiveCoreDoctorService:
             "final_score": row[7],
             "user_id": row[8],
             "qualification_code": row[9],
+            "country_id": row[10],
+            "country_code": row[11],
+            "country_name": row[12],
+            "country": {
+                "id": row[10],
+                "code": row[11],
+                "name": row[12],
+                "currency": row[13],
+                "phone_code": row[14],
+                "dni_mask": row[15],
+                "phone_mask": row[16],
+                "timezone": row[17],
+            },
             "specialties": self._get_specialties(row[0]),
+            "clinics": self._get_clinics(row[0]),
         }
         doctor["is_top_doctor"] = self._is_top_doctor(doctor)
         doctor["roles"] = []
@@ -103,6 +154,48 @@ class InteractiveCoreDoctorService:
             )
             rows = cursor.fetchall()
         return [{"id": row[0], "name": row[1], "code": row[2]} for row in rows]
+
+    def _get_clinics(self, doctor_id):
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT
+                    clinic.id,
+                    clinic.name,
+                    clinic.address,
+                    region.id,
+                    region.name
+                FROM doctor_medical_clinic doctor_clinic
+                INNER JOIN medical_clinic clinic ON clinic.id = doctor_clinic.clinic_id
+                LEFT JOIN region ON region.id = clinic.region_id
+                WHERE doctor_clinic.doctor_id = %s
+                  AND clinic.is_active = TRUE
+                ORDER BY clinic.name
+                """,
+                [doctor_id],
+            )
+            rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "address": row[2],
+                "region": {"id": row[3], "name": row[4]} if row[3] else None,
+            }
+            for row in rows
+        ]
+
+    def sync_portal_profile_context(self, profile):
+        doctor = self.get_doctor(profile.interactive_core_doctor_id)
+        if not doctor:
+            return False
+
+        profile.specialties = doctor.get("specialties") or []
+        profile.clinics = doctor.get("clinics") or []
+        profile.last_synced_at = timezone.now()
+        profile.save(update_fields=["specialties", "clinics", "last_synced_at", "updated_at"])
+        return True
 
     def _get_user_roles(self, user_id):
         if not user_id:

@@ -4,13 +4,16 @@ from rest_framework import generics
 from api.models import ExamCatalogMirror, MedicineCatalogMirror
 from api.serializers import ExamCatalogMirrorSerializer, MedicineCatalogMirrorSerializer
 from api.views.doctor_views import get_current_doctor
+from api.services.country_scope import get_country_scope
 
 
 class MedicineCatalogListView(generics.ListAPIView):
     serializer_class = MedicineCatalogMirrorSerializer
 
     def get_queryset(self):
-        queryset = MedicineCatalogMirror.objects.filter(is_active=True)
+        queryset = get_country_scope(self.request).require_valid().filter(
+            MedicineCatalogMirror.objects.filter(is_active=True).select_related("country"),
+        )
         search = self.request.query_params.get("search")
         if search:
             queryset = queryset.filter(
@@ -38,7 +41,9 @@ class RecommendedMedicineListView(generics.ListAPIView):
                 flat=True,
             )
         )
-        queryset = MedicineCatalogMirror.objects.filter(is_active=True)
+        queryset = get_country_scope(self.request).require_valid().filter(
+            MedicineCatalogMirror.objects.filter(is_active=True).select_related("country"),
+        )
         if specialty_ids:
             specialty_query = Q()
             for specialty_id in specialty_ids:
@@ -57,7 +62,9 @@ class ExamCatalogListView(generics.ListAPIView):
     serializer_class = ExamCatalogMirrorSerializer
 
     def get_queryset(self):
-        queryset = ExamCatalogMirror.objects.filter(is_active=True)
+        queryset = get_country_scope(self.request).require_valid().filter(
+            ExamCatalogMirror.objects.filter(is_active=True).select_related("country"),
+        )
         search = self.request.query_params.get("search")
         if search:
             queryset = queryset.filter(

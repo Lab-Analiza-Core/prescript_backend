@@ -3,7 +3,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from api.roles import PRESCRIPT_ROLE_CHOICES
+from api.models import Country
+from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_CHOICES, normalize_prescript_roles
+from api.serializers.country_serializers import CountrySerializer
 from api.services.admin_user_service import (
     create_admin_user,
     generate_temporary_password,
@@ -11,6 +13,7 @@ from api.services.admin_user_service import (
     update_admin_user,
 )
 from api.services.role_access import get_current_prescript_role
+from api.services.country_scope import get_country_scope
 
 
 ROLE_CHOICES = [(role, role) for role in PRESCRIPT_ROLE_CHOICES]
@@ -28,7 +31,7 @@ def get_user_profile_summary(user):
                 "type": profile_type,
                 "full_name": getattr(profile, "full_name", ""),
                 "phone": getattr(profile, "phone", "") or "",
-                "country": getattr(profile, "country", "") or "",
+                "country": CountrySerializer(profile.country).data if getattr(profile, "country_id", None) else None,
                 "status": getattr(profile, "status", "") or "",
             }
     return None
@@ -44,6 +47,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     primary_role = serializers.SerializerMethodField()
     profile = serializers.SerializerMethodField()
+    country = serializers.SerializerMethodField()
+    country_code = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = get_user_model()
@@ -57,6 +62,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "roles",
             "primary_role",
             "profile",
+            "country",
+            "country_code",
             "is_active",
             "is_staff",
             "is_superuser",
@@ -76,10 +83,36 @@ class AdminUserSerializer(serializers.ModelSerializer):
     def get_profile(self, user):
         return get_user_profile_summary(user)
 
+    def _get_user_country(self, user):
+        prefetched_accesses = getattr(user, "_active_country_accesses", None)
+        access = prefetched_accesses[0] if prefetched_accesses else None
+        if prefetched_accesses is None:
+            access = user.prescript_country_accesses.filter(
+                is_active=True,
+                country__isnull=False,
+            ).select_related("country").first()
+        if access:
+            return access.country
+        for attribute in ("doctor_portal_profile", "secretary_portal_profile", "nurse_portal_profile"):
+            profile = getattr(user, attribute, None)
+            if profile and profile.country_id:
+                return profile.country
+        return None
+
+    def get_country(self, user):
+        country = self._get_user_country(user)
+        return CountrySerializer(country).data if country else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["roles"] = list(instance.groups.values_list("name", flat=True))
+        data["roles"] = normalize_prescript_roles(instance.groups.values_list("name", flat=True))
         return data
+
+    def validate_country_code(self, value):
+        code = value.strip().upper()
+        if code and not Country.objects.filter(code=code, is_active=True).exists():
+            raise serializers.ValidationError("El pais seleccionado no existe o esta inactivo.")
+        return code
 
     def validate_email(self, value):
         email = value.strip().lower()
@@ -111,6 +144,21 @@ class AdminUserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"password": "Ingrese una contrasena temporal."})
         if not attrs.get("username") and attrs.get("email"):
             attrs["username"] = attrs["email"]
+        roles = attrs.get("roles")
+        if roles is None and self.instance:
+            roles = normalize_prescript_roles(self.instance.groups.values_list("name", flat=True))
+        country_code = attrs.get("country_code")
+        if country_code is None and self.instance:
+            country = self._get_user_country(self.instance)
+            country_code = country.code if country else ""
+        request = self.context.get("request")
+        if request:
+            scope = get_country_scope(request).require_valid()
+            if not scope.unrestricted:
+                country_code = scope.country.code
+                attrs["country_code"] = country_code
+        if roles and any(role != PRESCRIPT_ROLE_ADMIN for role in roles) and not country_code:
+            raise serializers.ValidationError({"country_code": "Selecciona el pais del usuario."})
         return attrs
 
     @transaction.atomic

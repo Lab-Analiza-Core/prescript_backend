@@ -18,6 +18,7 @@ from api.services.preclinic_service import (
     patient_payload,
 )
 from api.serializers.patient_serializers import PreclinicVitalsSerializer
+from api.services.country_scope import get_country_scope
 
 
 def _requested_date(request):
@@ -31,7 +32,7 @@ def _requested_date(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def preclinic_appointment_list_view(request):
-    queryset = accessible_appointments(request.user)
+    queryset = accessible_appointments(request.user, get_country_scope(request))
     date = request.query_params.get("date") or timezone.localdate().isoformat()
     queryset = queryset.filter(scheduled_at__date=date)
     return Response([appointment_payload(appointment) for appointment in queryset])
@@ -42,7 +43,7 @@ def preclinic_appointment_list_view(request):
 def preclinic_patient_list_view(request):
     date = request.query_params.get("date") or timezone.localdate().isoformat()
     selected_date = parse_date(date)
-    queryset = accessible_patients(request.user)
+    queryset = accessible_patients(request.user, get_country_scope(request))
     search = request.query_params.get("search", "").strip()
     if search:
         queryset = queryset.filter(
@@ -59,7 +60,7 @@ def preclinic_patient_list_view(request):
 @permission_classes([IsAuthenticated])
 def preclinic_vitals_upsert_view(request, appointment_id):
     try:
-        appointment = accessible_appointments(request.user).get(pk=appointment_id)
+        appointment = accessible_appointments(request.user, get_country_scope(request)).get(pk=appointment_id)
     except Appointment.DoesNotExist:
         return Response({"detail": "Cita no encontrada para preclinica."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -85,7 +86,7 @@ def preclinic_vitals_upsert_view(request, appointment_id):
 @permission_classes([IsAuthenticated])
 def preclinic_patient_vitals_upsert_view(request, patient_id):
     try:
-        patient = accessible_patients(request.user).get(pk=patient_id)
+        patient = accessible_patients(request.user, get_country_scope(request)).get(pk=patient_id)
     except Patient.DoesNotExist:
         return Response({"detail": "Paciente no encontrado para preclinica."}, status=status.HTTP_404_NOT_FOUND)
 

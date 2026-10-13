@@ -86,6 +86,7 @@ class DoctorActivationTests(TestCase):
             "roles": ["DOCTOR"],
             "has_doctor_role": True,
             "specialties": [{"id": 1, "name": "Cardiologia", "code": "CAR-001"}],
+            "clinics": [{"id": 8, "name": "Hospital del Valle"}],
         }
 
     @patch("api.serializers.auth_serializers.InteractiveCoreDoctorService.lookup_doctor")
@@ -106,7 +107,9 @@ class DoctorActivationTests(TestCase):
         self.assertIn("access", response.data)
         self.assertEqual(response.data["roles"], ["DOCTOR"])
         self.assertTrue(DoctorPortalProfile.objects.filter(interactive_core_doctor_id=25).exists())
-        self.assertEqual(DoctorPortalProfile.objects.get(interactive_core_doctor_id=25).sex, "F")
+        profile = DoctorPortalProfile.objects.get(interactive_core_doctor_id=25)
+        self.assertEqual(profile.sex, "F")
+        self.assertEqual(profile.clinics, [{"id": 8, "name": "Hospital del Valle"}])
         self.assertTrue(DoctorCredential.objects.filter(email="doctor.mvp@test.local").exists())
         self.assertTrue(Group.objects.filter(name="DOCTOR", user__email="doctor.mvp@test.local").exists())
 
@@ -122,6 +125,7 @@ class DoctorActivationTests(TestCase):
             interactive_core_doctor_id=301,
             full_name="Ada Cordoba",
             sex="F",
+            clinics=[{"id": 8, "name": "Hospital del Valle"}],
             status="active",
         )
         self.client.force_authenticate(user)
@@ -131,6 +135,10 @@ class DoctorActivationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["display_name"], "Dra. Ada Cordoba")
         self.assertEqual(response.data["doctor_profile"]["display_name"], "Dra. Ada Cordoba")
+        self.assertEqual(
+            response.data["doctor_profile"]["clinics"],
+            [{"id": 8, "name": "Hospital del Valle"}],
+        )
 
     def test_auth_me_uses_masculine_doctor_display_name(self):
         user = get_user_model().objects.create_user(

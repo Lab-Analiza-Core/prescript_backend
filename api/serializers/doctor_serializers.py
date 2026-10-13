@@ -2,11 +2,13 @@ from rest_framework import serializers
 
 from api.models import DoctorMedicinePreference, DoctorPortalProfile, NursePortalProfile, SecretaryPortalProfile
 from api.services.doctor_display import format_doctor_display_name
+from api.serializers.country_serializers import CountrySerializer
 
 
 class DoctorPortalProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     display_name = serializers.SerializerMethodField()
+    country = CountrySerializer(read_only=True)
 
     def get_display_name(self, doctor):
         return format_doctor_display_name(doctor.full_name, doctor.sex)
@@ -29,6 +31,7 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
             "public_email",
             "email",
             "specialties",
+            "clinics",
             "preferences",
             "is_top_doctor",
             "status",
@@ -48,6 +51,7 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
             "company",
             "zone",
             "specialties",
+            "clinics",
             "is_top_doctor",
             "status",
             "last_synced_at",
@@ -57,6 +61,8 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
 
 
 class SecretaryPortalProfileSerializer(serializers.ModelSerializer):
+    country = CountrySerializer(read_only=True)
+
     class Meta:
         model = SecretaryPortalProfile
         fields = [
@@ -75,6 +81,8 @@ class SecretaryPortalProfileSerializer(serializers.ModelSerializer):
 
 
 class NursePortalProfileSerializer(serializers.ModelSerializer):
+    country = CountrySerializer(read_only=True)
+
     class Meta:
         model = NursePortalProfile
         fields = [
@@ -111,3 +119,10 @@ class DoctorMedicinePreferenceSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "doctor", "created_at", "updated_at"]
+
+    def validate_medicine(self, medicine):
+        request = self.context.get("request")
+        doctor = getattr(getattr(request, "user", None), "doctor_portal_profile", None)
+        if doctor and medicine.country_id != doctor.country_id:
+            raise serializers.ValidationError("El medicamento no pertenece al pais del doctor.")
+        return medicine

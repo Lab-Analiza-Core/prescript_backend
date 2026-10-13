@@ -1,5 +1,6 @@
 from .appointment_serializers import AppointmentSerializer
 from .catalog_serializers import ExamCatalogMirrorSerializer, MedicineCatalogMirrorSerializer
+from .country_serializers import CountrySerializer
 from .doctor_serializers import (
     DoctorMedicinePreferenceSerializer,
     DoctorPortalProfileSerializer,
@@ -17,6 +18,7 @@ __all__ = [
     "SecretaryPortalProfileSerializer",
     "ExamCatalogMirrorSerializer",
     "MedicineCatalogMirrorSerializer",
+    "CountrySerializer",
     "PatientMedicalProfileSerializer",
     "PatientSerializer",
     "PatientVitalsSerializer",

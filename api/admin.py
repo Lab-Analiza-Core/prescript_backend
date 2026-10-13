@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from api.models import (
     Appointment,
+    Country,
     DoctorAccessLog,
     DoctorCredential,
     DoctorMedicinePreference,
@@ -16,6 +17,7 @@ from api.models import (
     PrescriptionItem,
     NursePortalProfile,
     SecretaryPortalProfile,
+    UserCountryAccess,
 )
 
 
@@ -34,3 +36,5 @@ admin.site.register(DoctorMedicinePreference)
 admin.site.register(ExamCatalogMirror)
 admin.site.register(Prescription)
 admin.site.register(PrescriptionItem)
+admin.site.register(Country)
+admin.site.register(UserCountryAccess)

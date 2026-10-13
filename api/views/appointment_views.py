@@ -8,6 +8,7 @@ from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
 from api.services.role_access import get_current_prescript_role
 from api.serializers import AppointmentSerializer
 from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
+from api.services.country_scope import get_country_scope
 
 
 class AppointmentListCreateView(generics.ListCreateAPIView):
@@ -19,6 +20,10 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
         doctor = getattr(self.request.user, "doctor_portal_profile", None)
         queryset = Appointment.objects.select_related("doctor", "patient").annotate(
             last_preclinic_recorded_at=Max("patient__vitals__recorded_at")
+        )
+        queryset = get_country_scope(self.request).require_valid().filter(
+            queryset,
+            field="doctor__country_id",
         )
 
         if role == PRESCRIPT_ROLE_DOCTOR and doctor:
@@ -53,6 +58,10 @@ class AppointmentDetailView(generics.RetrieveUpdateAPIView):
         doctor = getattr(self.request.user, "doctor_portal_profile", None)
         queryset = Appointment.objects.select_related("doctor", "patient").annotate(
             last_preclinic_recorded_at=Max("patient__vitals__recorded_at")
+        )
+        queryset = get_country_scope(self.request).require_valid().filter(
+            queryset,
+            field="doctor__country_id",
         )
 
         if role == PRESCRIPT_ROLE_DOCTOR and doctor:

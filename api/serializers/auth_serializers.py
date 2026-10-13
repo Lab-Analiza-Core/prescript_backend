@@ -10,6 +10,10 @@ from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROL
 from api.services.access_activation_service import AccessActivationService
 from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
 from api.utils.field_validators import validate_and_format_phone
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_portal_profile(user):
@@ -54,7 +58,13 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         attrs[self.username_field] = user.get_username()
         attrs["password"] = password
-        return super().validate(attrs)
+        payload = super().validate(attrs)
+        try:
+            InteractiveCoreAccessService().sync_user_workspaces(self.user)
+        except Exception as exc:
+            if exc.__class__.__name__ != "DatabaseOperationForbidden":
+                logger.warning("No se pudieron sincronizar los workspaces de Interactive Core.", exc_info=True)
+        return payload
 
 
 class DoctorActivationSerializer(serializers.Serializer):

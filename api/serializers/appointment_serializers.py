@@ -5,6 +5,7 @@ from api.models import Appointment, DoctorPortalProfile, PatientVitals
 from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
 from api.services.role_access import get_current_prescript_role
 from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
+from api.services.country_scope import get_country_scope
 
 
 APPOINTMENT_TIME_CONFLICT_MESSAGE = (
@@ -101,6 +102,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
         patient = attrs.get("patient") or getattr(self.instance, "patient", None)
         scheduled_at = attrs.get("scheduled_at") or getattr(self.instance, "scheduled_at", None)
         duration_minutes = attrs.get("duration_minutes") or getattr(self.instance, "duration_minutes", 30)
+
+        if request and doctor and not get_country_scope(request).require_valid().allows(doctor.country_id):
+            raise serializers.ValidationError({"doctor": "El doctor no pertenece al pais activo."})
 
         if doctor and patient and patient.doctor_id != doctor.id:
             raise serializers.ValidationError({"patient": "El paciente no pertenece al doctor seleccionado."})
