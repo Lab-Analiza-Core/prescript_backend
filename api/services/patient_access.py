@@ -9,7 +9,8 @@ from api.roles import (
     PRESCRIPT_ROLE_SECRETARY,
 )
 from api.services.role_access import get_current_prescript_role
-from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
+from api.services.organization_scope import get_organization_scope
+from api.services.secretary_access import get_secretary_assigned_doctor_ids
 
 
 PATIENT_MANAGER_ROLES = {PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_MANAGER}
@@ -23,8 +24,7 @@ def accessible_patient_queryset(user, queryset=None, include_inactive=True):
     else:
         role = get_current_prescript_role(user)
         if role == PRESCRIPT_ROLE_SECRETARY:
-            doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(user)
-            queryset = queryset.filter(doctor__interactive_core_doctor_id__in=doctor_ids)
+            queryset = queryset.filter(doctor_id__in=get_secretary_assigned_doctor_ids(user))
         elif role not in PATIENT_MANAGER_ROLES:
             queryset = queryset.none()
 
@@ -39,7 +39,8 @@ def country_scoped_patient_queryset(user, scope, queryset=None, include_inactive
         queryset=queryset,
         include_inactive=include_inactive,
     )
-    return scope.require_valid().filter(queryset, field="doctor__country_id")
+    queryset = scope.require_valid().filter(queryset, field="doctor__country_id")
+    return get_organization_scope(user).filter(queryset, field="doctor__organization")
 
 
 def save_patient_for_user(serializer, user, patient=None, scope=None):
@@ -54,10 +55,9 @@ def save_patient_for_user(serializer, user, patient=None, scope=None):
 
     if role == PRESCRIPT_ROLE_SECRETARY:
         selected_doctor = serializer.validated_data.get("doctor", getattr(patient, "doctor", None))
-        doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(user)
         if not selected_doctor:
             raise PermissionDenied("Seleccione el doctor responsable del paciente.")
-        if selected_doctor.interactive_core_doctor_id not in doctor_ids:
+        if selected_doctor.id not in get_secretary_assigned_doctor_ids(user):
             raise PermissionDenied("El doctor no esta vinculado a esta secretaria.")
         if scope and not scope.require_valid().allows(selected_doctor.country_id):
             raise PermissionDenied("El doctor no pertenece al pais activo.")
@@ -68,6 +68,8 @@ def save_patient_for_user(serializer, user, patient=None, scope=None):
         selected_doctor = serializer.validated_data.get("doctor", getattr(patient, "doctor", None))
         if not selected_doctor:
             raise PermissionDenied("Seleccione el doctor responsable del paciente.")
+        if not get_organization_scope(user).allows_organization(selected_doctor.organization_id):
+            raise PermissionDenied("El doctor no pertenece a su organizacion.")
         if scope and not scope.require_valid().allows(selected_doctor.country_id):
             raise PermissionDenied("El doctor no pertenece al pais activo.")
         serializer.save()

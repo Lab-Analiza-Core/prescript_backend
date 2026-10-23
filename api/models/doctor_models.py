@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from .organization_models import ORIGIN_CHOICES, ORIGIN_INTERACTIVE_CORE
+
 
 class DoctorPortalProfile(models.Model):
     STATUS_CHOICES = [
@@ -19,9 +21,17 @@ class DoctorPortalProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="doctor_portal_profile",
     )
-    interactive_core_doctor_id = models.PositiveIntegerField(unique=True)
+    interactive_core_doctor_id = models.PositiveIntegerField(unique=True, blank=True, null=True)
     full_name = models.CharField(max_length=255)
     sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
+    organization = models.ForeignKey(
+        "Organization",
+        on_delete=models.PROTECT,
+        related_name="doctors",
+        blank=True,
+        null=True,
+    )
+    origin = models.CharField(max_length=20, choices=ORIGIN_CHOICES, default=ORIGIN_INTERACTIVE_CORE)
     colegiation_code = models.CharField(max_length=50, blank=True, null=True)
     qualification_code = models.CharField(max_length=100, blank=True, null=True)
     final_score = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
@@ -126,7 +136,15 @@ class SecretaryPortalProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="secretary_portal_profile",
     )
-    secretaria_interactivecore_id = models.PositiveIntegerField(unique=True)
+    secretaria_interactivecore_id = models.PositiveIntegerField(unique=True, blank=True, null=True)
+    organization = models.ForeignKey(
+        "Organization",
+        on_delete=models.PROTECT,
+        related_name="secretaries",
+        blank=True,
+        null=True,
+    )
+    origin = models.CharField(max_length=20, choices=ORIGIN_CHOICES, default=ORIGIN_INTERACTIVE_CORE)
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
@@ -161,8 +179,16 @@ class NursePortalProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="nurse_portal_profile",
     )
-    interactive_core_user_id = models.PositiveIntegerField(unique=True)
-    interactive_core_employee_id = models.PositiveIntegerField(unique=True)
+    interactive_core_user_id = models.PositiveIntegerField(unique=True, blank=True, null=True)
+    interactive_core_employee_id = models.PositiveIntegerField(unique=True, blank=True, null=True)
+    organization = models.ForeignKey(
+        "Organization",
+        on_delete=models.PROTECT,
+        related_name="nurses",
+        blank=True,
+        null=True,
+    )
+    origin = models.CharField(max_length=20, choices=ORIGIN_CHOICES, default=ORIGIN_INTERACTIVE_CORE)
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)

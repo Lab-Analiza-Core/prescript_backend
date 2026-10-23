@@ -1,11 +1,36 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from api.views.auth_views import (
-    DoctorActivationView,
-    EmailTokenObtainPairView,
-    PortalAccessActivationView,
-    PortalAccessIdentifierValidationView,
+from api.views.auth_views import EmailTokenObtainPairView, LegacyActivationClosedView
+from api.views.affiliation_views import (
+    AffiliationActivateView,
+    AffiliationDecisionView,
+    AffiliationRequestCodeView,
+    AffiliationRequestListView,
+    AffiliationSearchView,
+)
+from api.views.organization_admin_views import (
+    InvitationDetailView,
+    InvitationListCreateView,
+    MemberListView,
+    MemberStatusView,
+    OrgAdminDecisionView,
+    OrgAdminRequestListView,
+    OrganizationDetailView,
+    OrganizationListCreateView,
+    PublicCurrentTermsView,
+    PublicDivisionListView,
+    PublicSpecialtyListView,
+    SecretaryAssignmentDetailView,
+    SecretaryAssignmentListCreateView,
+    TermsVersionListCreateView,
+)
+from api.views.registration_views import (
+    ExternalRegistrationView,
+    InvitationValidationView,
+    PatientHistoryRequestView,
+    PatientHistoryView,
+    PatientHistoryVerifyView,
 )
 from api.views.appointment_views import AppointmentDetailView, AppointmentListCreateView, AppointmentPastRescheduleView
 from api.views.catalog_views import ExamCatalogListView, MedicineCatalogListView, RecommendedMedicineListView
@@ -30,9 +55,35 @@ from api.views.user_views import AdminUserDetailView, AdminUserListCreateView, A
 
 urlpatterns = [
     path("auth/login", EmailTokenObtainPairView.as_view(), name="token-obtain-pair"),
-    path("auth/access/activate", PortalAccessActivationView.as_view(), name="portal-access-activate"),
-    path("auth/access/validate", PortalAccessIdentifierValidationView.as_view(), name="portal-access-validate"),
-    path("auth/doctor/activate", DoctorActivationView.as_view(), name="doctor-activate"),
+    path("auth/access/activate", LegacyActivationClosedView.as_view(), name="portal-access-activate"),
+    path("auth/access/validate", LegacyActivationClosedView.as_view(), name="portal-access-validate"),
+    path("auth/doctor/activate", LegacyActivationClosedView.as_view(), name="doctor-activate"),
+    path("auth/register", ExternalRegistrationView.as_view(), name="auth-register"),
+    path("auth/invitation/validate", InvitationValidationView.as_view(), name="invitation-validate"),
+    path("patient/history/request", PatientHistoryRequestView.as_view(), name="patient-history-request"),
+    path("patient/me/history", PatientHistoryView.as_view(), name="patient-me-history"),
+    path("patient/history/verify", PatientHistoryVerifyView.as_view(), name="patient-history-verify"),
+    path("auth/affiliation/search", AffiliationSearchView.as_view(), name="affiliation-search"),
+    path("auth/affiliation/request-code", AffiliationRequestCodeView.as_view(), name="affiliation-request-code"),
+    path("auth/affiliation/activate", AffiliationActivateView.as_view(), name="affiliation-activate"),
+    path("admin/affiliation-requests", AffiliationRequestListView.as_view(), name="admin-affiliation-requests"),
+    path("admin/affiliation-requests/<int:pk>/approve", AffiliationDecisionView.as_view(approve=True), name="admin-affiliation-approve"),
+    path("admin/affiliation-requests/<int:pk>/reject", AffiliationDecisionView.as_view(approve=False), name="admin-affiliation-reject"),
+    path("auth/catalog/divisions", PublicDivisionListView.as_view(), name="public-divisions"),
+    path("auth/catalog/specialties", PublicSpecialtyListView.as_view(), name="public-specialties"),
+    path("auth/terms/current", PublicCurrentTermsView.as_view(), name="public-terms-current"),
+    path("admin/organizations", OrganizationListCreateView.as_view(), name="admin-organizations"),
+    path("admin/organizations/<int:pk>", OrganizationDetailView.as_view(), name="admin-organization-detail"),
+    path("admin/organizations/<int:organization_id>/invitations", InvitationListCreateView.as_view(), name="admin-invitations"),
+    path("admin/invitations/<int:pk>", InvitationDetailView.as_view(), name="admin-invitation-detail"),
+    path("admin/members", MemberListView.as_view(), name="admin-members"),
+    path("admin/members/<int:pk>", MemberStatusView.as_view(), name="admin-member-status"),
+    path("admin/secretary-assignments", SecretaryAssignmentListCreateView.as_view(), name="admin-secretary-assignments"),
+    path("admin/secretary-assignments/<int:pk>", SecretaryAssignmentDetailView.as_view(), name="admin-secretary-assignment-detail"),
+    path("admin/org-admins", OrgAdminRequestListView.as_view(), name="admin-org-admins"),
+    path("admin/org-admins/<int:pk>/approve", OrgAdminDecisionView.as_view(approve=True), name="admin-org-admin-approve"),
+    path("admin/org-admins/<int:pk>/reject", OrgAdminDecisionView.as_view(approve=False), name="admin-org-admin-reject"),
+    path("admin/terms", TermsVersionListCreateView.as_view(), name="admin-terms"),
     path("auth/refresh", TokenRefreshView.as_view(), name="token-refresh"),
     path("auth/me", auth_me_view, name="auth-me"),
     path("search", global_search_view, name="global-search"),

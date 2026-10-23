@@ -23,6 +23,7 @@ class PatientSerializer(serializers.ModelSerializer):
     doctor = serializers.PrimaryKeyRelatedField(queryset=DoctorPortalProfile.objects.all(), required=False)
     full_name = serializers.CharField(read_only=True)
     doctor_name = serializers.CharField(source="doctor.full_name", read_only=True)
+    doctor_is_external = serializers.SerializerMethodField()
     medical_profile = PatientMedicalProfileSerializer(required=False)
     latest_vitals = serializers.SerializerMethodField()
     recent_vitals = serializers.SerializerMethodField()
@@ -33,6 +34,7 @@ class PatientSerializer(serializers.ModelSerializer):
             "id",
             "doctor",
             "doctor_name",
+            "doctor_is_external",
             "first_name",
             "last_name",
             "full_name",
@@ -50,7 +52,10 @@ class PatientSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "doctor_name", "patient_score", "created_at", "updated_at"]
+        read_only_fields = ["id", "doctor_name", "doctor_is_external", "patient_score", "created_at", "updated_at"]
+
+    def get_doctor_is_external(self, obj):
+        return obj.doctor.origin == "self_registered"
 
     def get_latest_vitals(self, obj):
         latest = obj.vitals.order_by("-recorded_at").first()

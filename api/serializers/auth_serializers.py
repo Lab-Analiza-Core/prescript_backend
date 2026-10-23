@@ -6,9 +6,8 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from api.models import DoctorCredential
-from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
-from api.services.access_activation_service import AccessActivationService
-from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
+from api.services.interactive_core import InteractiveCoreAccessService
+from api.services.organization_scope import get_access_block_reason
 from api.utils.field_validators import validate_and_format_phone
 import logging
 
@@ -17,11 +16,31 @@ logger = logging.getLogger(__name__)
 
 
 def get_user_portal_profile(user):
-    for attribute in ("doctor_portal_profile", "secretary_portal_profile", "nurse_portal_profile"):
+    for attribute in (
+        "doctor_portal_profile",
+        "secretary_portal_profile",
+        "nurse_portal_profile",
+        "org_admin_profile",
+        "patient_portal_profile",
+    ):
         profile = getattr(user, attribute, None)
         if profile:
             return profile
     return None
+
+
+AFFILIATION_PENDING_MESSAGE = "Su solicitud de afiliacion esta en revision. Le avisaremos por correo cuando se apruebe."
+AFFILIATION_REJECTED_MESSAGE = "Su solicitud de afiliacion no fue aprobada. Contacte a su administrador."
+
+
+def get_affiliation_review_message(user):
+    """Solo para cuentas inactivas con una solicitud de afiliacion sin aprobar."""
+    if user.is_active:
+        return ""
+    request = getattr(user, "affiliation_request", None)
+    if request is None or request.status == "approved":
+        return ""
+    return AFFILIATION_PENDING_MESSAGE if request.status == "pending" else AFFILIATION_REJECTED_MESSAGE
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -56,104 +75,22 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
                 code="authorization",
             )
 
+        review_message = get_affiliation_review_message(user)
+        if review_message:
+            raise serializers.ValidationError({"detail": review_message}, code="authorization")
+
         attrs[self.username_field] = user.get_username()
         attrs["password"] = password
         payload = super().validate(attrs)
+        block_reason = get_access_block_reason(self.user)
+        if block_reason:
+            raise serializers.ValidationError({"detail": block_reason}, code="authorization")
         try:
             InteractiveCoreAccessService().sync_user_workspaces(self.user)
         except Exception as exc:
             if exc.__class__.__name__ != "DatabaseOperationForbidden":
                 logger.warning("No se pudieron sincronizar los workspaces de Interactive Core.", exc_info=True)
         return payload
-
-
-class DoctorActivationSerializer(serializers.Serializer):
-    identifier = serializers.CharField(max_length=254, write_only=True)
-    email = serializers.EmailField(required=False, write_only=True)
-    password = serializers.CharField(min_length=8, write_only=True)
-    password_confirm = serializers.CharField(min_length=8, write_only=True)
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
-            raise serializers.ValidationError({"password_confirm": "Las contrasenas no coinciden."})
-
-        doctor = InteractiveCoreDoctorService().lookup_doctor(attrs["identifier"].strip())
-        if doctor is None:
-            raise serializers.ValidationError({"identifier": "No se encontro el doctor en Interactive Core."})
-
-        if doctor.get("status") != "active":
-            raise serializers.ValidationError({"identifier": "El doctor no esta activo en Interactive Core."})
-
-        if not doctor.get("has_doctor_role"):
-            raise serializers.ValidationError({"identifier": "El usuario no tiene rol de doctor en Interactive Core."})
-
-        attrs["interactive_core_doctor"] = doctor
-        return attrs
-
-    @transaction.atomic
-    def create(self, validated_data):
-        return AccessActivationService().activate_doctor(
-            doctor_data=validated_data["interactive_core_doctor"],
-            email=validated_data.get("email"),
-            password=validated_data["password"],
-        )
-
-
-class PortalAccessActivationSerializer(serializers.Serializer):
-    ROLE_CHOICES = (
-        (PRESCRIPT_ROLE_DOCTOR, "Doctor"),
-        (PRESCRIPT_ROLE_NURSE, "Enfermera"),
-        (PRESCRIPT_ROLE_SECRETARY, "Secretaria"),
-    )
-
-    role = serializers.ChoiceField(choices=ROLE_CHOICES)
-    identifier = serializers.CharField(max_length=254, write_only=True)
-    email = serializers.EmailField(required=False, write_only=True)
-    password = serializers.CharField(min_length=8, write_only=True)
-    password_confirm = serializers.CharField(min_length=8, write_only=True)
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
-            raise serializers.ValidationError({"password_confirm": "Las contrasenas no coinciden."})
-
-        role = attrs["role"]
-        profile = InteractiveCoreAccessService().lookup(role, attrs["identifier"].strip())
-        if profile is None:
-            raise serializers.ValidationError({"identifier": "No se encontro un registro activo para este rol en Interactive Core."})
-
-        if role == PRESCRIPT_ROLE_DOCTOR and profile.get("status") != "active":
-            raise serializers.ValidationError({"identifier": "El doctor no esta activo en Interactive Core."})
-
-        attrs["interactive_core_profile"] = profile
-        return attrs
-
-    @transaction.atomic
-    def create(self, validated_data):
-        return AccessActivationService().activate_portal_access(
-            role=validated_data["role"],
-            profile_data=validated_data["interactive_core_profile"],
-            email=validated_data.get("email"),
-            password=validated_data["password"],
-        )
-
-
-class PortalAccessIdentifierValidationSerializer(serializers.Serializer):
-    ROLE_CHOICES = PortalAccessActivationSerializer.ROLE_CHOICES
-
-    role = serializers.ChoiceField(choices=ROLE_CHOICES)
-    identifier = serializers.CharField(max_length=254, write_only=True)
-
-    def validate(self, attrs):
-        role = attrs["role"]
-        profile = InteractiveCoreAccessService().lookup(role, attrs["identifier"].strip())
-        if profile is None:
-            raise serializers.ValidationError({"identifier": "El identificador no es correcto para este rol."})
-
-        if role == PRESCRIPT_ROLE_DOCTOR and profile.get("status") != "active":
-            raise serializers.ValidationError({"identifier": "El doctor no esta activo en Interactive Core."})
-
-        attrs["interactive_core_profile"] = profile
-        return attrs
 
 
 class UserProfileUpdateSerializer(serializers.Serializer):

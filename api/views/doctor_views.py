@@ -23,6 +23,9 @@ from api.serializers import (
 )
 from api.serializers.auth_serializers import UserProfileUpdateSerializer
 from api.services.country_scope import get_country_context, get_country_scope
+from api.services.account_origin import is_external_account
+from api.services.organization_scope import get_organization_scope
+from api.services.secretary_access import get_secretary_assigned_doctor_ids
 from api.services.interactive_core import InteractiveCoreAccessService, InteractiveCoreDoctorService
 import logging
 
@@ -44,8 +47,10 @@ def build_auth_me_payload(user, requested_country_code=""):
     doctor = getattr(user, "doctor_portal_profile", None)
     secretary = getattr(user, "secretary_portal_profile", None)
     nurse = getattr(user, "nurse_portal_profile", None)
+    org_admin = getattr(user, "org_admin_profile", None)
+    patient = getattr(user, "patient_portal_profile", None)
 
-    active_profile = doctor or secretary or nurse
+    active_profile = doctor or secretary or nurse or org_admin or patient
     doctor_profile = DoctorPortalProfileSerializer(doctor).data if doctor else None
     role = get_current_prescript_role(user) or "user"
 
@@ -69,6 +74,26 @@ def build_auth_me_payload(user, requested_country_code=""):
         "secretary_profile": SecretaryPortalProfileSerializer(secretary).data if secretary else None,
         "nurse_profile": NursePortalProfileSerializer(nurse).data if nurse else None,
         "country_context": country_context,
+        "organization": (
+            {
+                "id": active_profile.organization.id,
+                "name": active_profile.organization.name,
+                "is_interactive_core": active_profile.organization.is_interactive_core,
+            }
+            if getattr(active_profile, "organization", None)
+            else None
+        ),
+        "is_external": is_external_account(user),
+        "org_admin_profile": {"id": org_admin.id, "status": org_admin.status} if org_admin else None,
+        "patient_profile": (
+            {
+                "id": patient.id,
+                "document_type": patient.document_type,
+                "history_verified": patient.history_verified_at is not None,
+            }
+            if patient
+            else None
+        ),
     }
 
 
@@ -133,21 +158,17 @@ class DoctorListView(generics.ListAPIView):
         role = get_current_prescript_role(self.request.user)
         secretary = getattr(self.request.user, "secretary_portal_profile", None)
         if role == PRESCRIPT_ROLE_SECRETARY and secretary:
-            from api.services.interactive_core import InteractiveCoreSecretaryService
-
-            doctor_ids = InteractiveCoreSecretaryService().get_assigned_doctor_ids(
-                secretary.secretaria_interactivecore_id
-            )
             return DoctorPortalProfile.objects.filter(
-                interactive_core_doctor_id__in=doctor_ids,
+                id__in=get_secretary_assigned_doctor_ids(self.request.user),
                 status="active",
             ).select_related("country").order_by("full_name")
 
         if role in {PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_MANAGER, PRESCRIPT_ROLE_NURSE}:
             scope = get_country_scope(self.request).require_valid()
-            return scope.filter(
+            doctors = scope.filter(
                 DoctorPortalProfile.objects.filter(status="active").select_related("country"),
-            ).order_by("full_name")
+            )
+            return get_organization_scope(self.request.user).filter(doctors).order_by("full_name")
 
         return DoctorPortalProfile.objects.none()
 

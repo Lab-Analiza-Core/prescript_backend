@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,6 +29,8 @@ DEFAULT_CLIENT_ORIGIN_REGEXES = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+# El frontend envia el pais activo en esta cabecera; sin permitirla el navegador bloquea la peticion.
+CORS_ALLOW_HEADERS = (*default_headers, "x-prescript-country")
 CORS_ALLOW_PRIVATE_NETWORK = env.bool("CORS_ALLOW_PRIVATE_NETWORK", default=True)
 CORS_ALLOWED_ORIGINS = list(
     dict.fromkeys(DEFAULT_CLIENT_ORIGINS + env.list("CORS_ALLOWED_ORIGINS", default=[]))
@@ -128,6 +131,13 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "register": "20/hour",
+        "invitation_validate": "60/hour",
+        "otp": "10/hour",
+        "catalog": "120/hour",
+        "affiliation_search": "60/hour",
+    },
 }
 
 SIMPLE_JWT = {
@@ -147,6 +157,23 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Correo de notificaciones: mismo remitente SMTP que usa Interactive Core.
+# Sin credenciales se imprime en consola para no fallar en desarrollo.
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default=(
+        "django.core.mail.backends.smtp.EmailBackend"
+        if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD
+        else "django.core.mail.backends.console.EmailBackend"
+    ),
+)
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "no-reply@prescript.local")
 
 INTERACTIVE_CORE_API_BASE_URL = env("INTERACTIVE_CORE_API_BASE_URL", default="")
 INTERACTIVE_CORE_API_TOKEN = env("INTERACTIVE_CORE_API_TOKEN", default="")

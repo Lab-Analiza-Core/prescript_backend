@@ -31,6 +31,59 @@ class InteractiveCoreDoctorService:
             return doctor
         return self.get_doctor_from_local_db(interactive_core_doctor_id)
 
+    def search_doctors(self, query, limit=10):
+        """Busqueda por nombre o colegiacion para el combobox de afiliacion (solo doctores activos)."""
+        query = str(query or "").strip()
+        if not query:
+            return []
+        if self.client.base_url:
+            response = self.client.get("doctors/search", params={"q": query, "limit": limit})
+            rows = response.get("results", response) if isinstance(response, dict) else response
+            return [
+                {
+                    "id": row.get("id"),
+                    "full_name": row.get("full_name"),
+                    "colegiation_code": row.get("colegiation_code"),
+                    "country_code": row.get("country_code") or (row.get("country") or {}).get("code"),
+                    # None = la API no lo informa; el backend lo decide al pedir el codigo.
+                    "has_email": bool(str(row["email"]).strip()) if "email" in row else None,
+                }
+                for row in (rows or [])
+                if row.get("status", "active") == "active"
+            ][:limit]
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT d.id, d.full_name, d.colegiation_code, c.code, COALESCE(TRIM(d.email), '') <> ''
+                FROM api_doctor d
+                LEFT JOIN api_country c ON c.id = d.country_id
+                WHERE d.status = 'active'
+                  AND (d.full_name ILIKE %s OR COALESCE(d.colegiation_code, '') ILIKE %s)
+                ORDER BY d.full_name
+                LIMIT %s
+                """,
+                [pattern, pattern, limit],
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "full_name": row[1],
+                "colegiation_code": row[2],
+                "country_code": row[3],
+                "has_email": bool(row[4]),
+            }
+            for row in rows
+        ]
+
+    def get_doctor_for_activation(self, interactive_core_doctor_id):
+        doctor = self.get_doctor(interactive_core_doctor_id)
+        if doctor and self.client.base_url:
+            self._set_doctor_role_status(doctor)
+        return doctor
+
     def update_doctor_public_profile(self, interactive_core_doctor_id, payload):
         allowed_payload = {
             key: value
@@ -187,6 +240,8 @@ class InteractiveCoreDoctorService:
         ]
 
     def sync_portal_profile_context(self, profile):
+        if not profile.interactive_core_doctor_id:
+            return False
         doctor = self.get_doctor(profile.interactive_core_doctor_id)
         if not doctor:
             return False

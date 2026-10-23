@@ -5,16 +5,47 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.models import UserCountryAccess
-from api.permissions import IsPrescriptAdmin
+from api.permissions import IsPrescriptAdmin, IsPrescriptAdminOrOrgAdmin
+from api.services.account_origin import EXTERNAL_ORIGIN
+from api.services.country_scope import is_global_admin_user
+from api.services.organization_scope import get_organization_scope
 from api.serializers.user_serializers import AdminUserSerializer, UserPasswordResetSerializer
 from api.services.country_scope import get_country_scope
 
 
+def organization_scoped_users(request):
+    """Un administrador de organizacion solo ve a los usuarios de su propia organizacion."""
+    organization_scope = get_organization_scope(request.user)
+    queryset = get_user_model().objects.all()
+    if not organization_scope.organization_id:
+        return queryset.none()
+    organization_id = organization_scope.organization_id
+    return queryset.filter(
+        Q(doctor_portal_profile__organization_id=organization_id)
+        | Q(secretary_portal_profile__organization_id=organization_id)
+        | Q(nurse_portal_profile__organization_id=organization_id)
+        | Q(org_admin_profile__organization_id=organization_id)
+        | Q(patient_portal_profile__organization_id=organization_id)
+    )
+
+
 def country_scoped_users(request):
+    user = request.user
+    if getattr(user, "org_admin_profile", None) and not is_global_admin_user(user):
+        return organization_scoped_users(request)
     scope = get_country_scope(request).require_valid()
     queryset = get_user_model().objects.all()
     if scope.unrestricted:
         return queryset
+    # Los administradores por pais gestionan al personal de Interactive Core; las cuentas
+    # externas las controla su administrador de organizacion o el administrador global.
+    queryset = queryset.exclude(
+        Q(doctor_portal_profile__origin=EXTERNAL_ORIGIN)
+        | Q(secretary_portal_profile__origin=EXTERNAL_ORIGIN)
+        | Q(nurse_portal_profile__origin=EXTERNAL_ORIGIN)
+        | Q(org_admin_profile__isnull=False)
+        | Q(patient_portal_profile__isnull=False)
+    )
     return queryset.filter(
         Q(prescript_country_accesses__country_id=scope.country_id)
         | Q(doctor_portal_profile__country_id=scope.country_id)
@@ -28,7 +59,10 @@ def country_scoped_users(request):
 
 class AdminUserListCreateView(generics.ListCreateAPIView):
     serializer_class = AdminUserSerializer
-    permission_classes = [IsPrescriptAdmin]
+
+    def get_permissions(self):
+        permission = IsPrescriptAdminOrOrgAdmin if self.request.method == "GET" else IsPrescriptAdmin
+        return [permission()]
 
     def get_queryset(self):
         queryset = (
@@ -75,7 +109,10 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
 
 class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AdminUserSerializer
-    permission_classes = [IsPrescriptAdmin]
+
+    def get_permissions(self):
+        permission = IsPrescriptAdminOrOrgAdmin if self.request.method == "GET" else IsPrescriptAdmin
+        return [permission()]
 
     def get_queryset(self):
         return country_scoped_users(self.request).prefetch_related(

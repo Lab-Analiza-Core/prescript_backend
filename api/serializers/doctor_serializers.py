@@ -9,9 +9,13 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     display_name = serializers.SerializerMethodField()
     country = CountrySerializer(read_only=True)
+    is_external = serializers.SerializerMethodField()
 
     def get_display_name(self, doctor):
         return format_doctor_display_name(doctor.full_name, doctor.sex)
+
+    def get_is_external(self, doctor):
+        return doctor.origin == "self_registered"
 
     class Meta:
         model = DoctorPortalProfile
@@ -34,6 +38,7 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
             "clinics",
             "preferences",
             "is_top_doctor",
+            "is_external",
             "status",
             "last_synced_at",
             "created_at",
@@ -41,6 +46,7 @@ class DoctorPortalProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "is_external",
             "interactive_core_doctor_id",
             "display_name",
             "sex",

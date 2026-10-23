@@ -8,7 +8,8 @@ from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
 from api.services.country_scope import get_country_scope
 from api.services.patient_access import country_scoped_patient_queryset
 from api.services.role_access import get_current_prescript_role
-from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
+from api.services.organization_scope import get_organization_scope
+from api.services.secretary_access import get_secretary_assigned_doctor_ids
 
 
 SEARCH_RESULT_LIMIT = 5
@@ -22,12 +23,12 @@ def _appointment_queryset(request):
         queryset,
         field="doctor__country_id",
     )
+    queryset = get_organization_scope(request.user).filter(queryset, field="doctor__organization")
 
     if role == PRESCRIPT_ROLE_DOCTOR and doctor:
         return queryset.filter(doctor=doctor)
     if role == PRESCRIPT_ROLE_SECRETARY:
-        doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(request.user)
-        return queryset.filter(doctor__interactive_core_doctor_id__in=doctor_ids)
+        return queryset.filter(doctor_id__in=get_secretary_assigned_doctor_ids(request.user))
     return queryset.none()
 
 

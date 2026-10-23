@@ -16,7 +16,13 @@ NO_COUNTRY_ERROR = "Tu usuario no tiene un pais asignado. Contacta al administra
 
 
 def _profile_country(user):
-    for attribute in ("doctor_portal_profile", "secretary_portal_profile", "nurse_portal_profile"):
+    for attribute in (
+        "doctor_portal_profile",
+        "secretary_portal_profile",
+        "nurse_portal_profile",
+        "org_admin_profile",
+        "patient_portal_profile",
+    ):
         profile = getattr(user, attribute, None)
         if profile and profile.country_id:
             return profile.country

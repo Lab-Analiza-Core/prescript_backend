@@ -8,8 +8,8 @@ from rest_framework.exceptions import APIException
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
 from api.models import UserCountryAccess
 from api.roles import COUNTRY_ADMIN_ROLE_PREFIX, normalize_prescript_role
+from api.services.account_origin import is_external_account
 from api.services.country_service import get_or_create_country
-from .doctor_service import InteractiveCoreDoctorService
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,9 @@ class InteractiveCoreAccessService:
         return workspaces
 
     def sync_user_workspaces(self, user):
+        # Una cuenta autorregistrada no puede heredar roles de IC solo por coincidir el correo.
+        if is_external_account(user):
+            return []
         workspaces = self.get_user_workspaces(user.email)
         UserCountryAccess.objects.filter(user=user, source="interactive_core").delete()
         admin_groups = list(
@@ -139,38 +142,25 @@ class InteractiveCoreAccessService:
 
         return bool(row and row[0])
 
-    def lookup(self, role, identifier):
-        normalized_role = str(role or "").strip().upper()
-        normalized_identifier = str(identifier or "").strip()
+    # --- Fichas de secretarias y enfermeras (afiliacion) -------------------------------------
+    # Se consultan por id exacto: buscar por correo, DNI o texto libre permitiria reclamar la ficha
+    # de otra persona conociendo un dato casi publico.
 
-        if normalized_role == "DOCTOR":
-            return InteractiveCoreDoctorService().lookup_doctor(normalized_identifier)
-        if normalized_role == PRESCRIPT_ROLE_SECRETARY:
-            return self.lookup_secretary(normalized_identifier)
-        if normalized_role == PRESCRIPT_ROLE_NURSE:
-            return self.lookup_employee_with_role(normalized_identifier, PRESCRIPT_ROLE_NURSE)
-        return None
+    @staticmethod
+    def _escape_like(query):
+        escaped = str(query).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
 
-    def lookup_secretary(self, identifier):
+    def get_secretary(self, secretary_id):
         with connections["interactive_core"].cursor() as cursor:
             cursor.execute(
                 """
-                SELECT
-                    s.id,
-                    s.full_name,
-                    s.email,
-                    s.phone,
-                    s.dni,
-                    s.country_id,
-                    c.name AS country_name
+                SELECT s.id, s.full_name, s.email, s.phone, s.dni, s.country_id, c.name AS country_name
                 FROM api_secretary s
                 LEFT JOIN api_country c ON c.id = s.country_id
-                WHERE CAST(s.id AS TEXT) = %s
-                   OR LOWER(COALESCE(s.email, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(s.dni, '')) = LOWER(%s)
-                LIMIT 1
+                WHERE s.id = %s
                 """,
-                [identifier, identifier, identifier],
+                [secretary_id],
             )
             row = cursor.fetchone()
 
@@ -190,40 +180,50 @@ class InteractiveCoreAccessService:
             "has_prescript_access": True,
         }
 
-    def lookup_employee_with_role(self, identifier, role_code):
+    def search_secretaries(self, query, limit=10):
+        pattern = self._escape_like(query)
         with connections["interactive_core"].cursor() as cursor:
             cursor.execute(
                 """
-                SELECT
-                    u.id AS user_id,
-                    ep.id AS employee_id,
-                    ep.full_name,
-                    u.email,
-                    ep.phone,
-                    ep.dni,
-                    ep.country_id,
-                    c.name AS country_name
+                SELECT s.id, s.full_name, s.dni, c.code, COALESCE(TRIM(s.email), '') <> ''
+                FROM api_secretary s
+                LEFT JOIN api_country c ON c.id = s.country_id
+                WHERE s.full_name ILIKE %s OR COALESCE(s.dni, '') ILIKE %s
+                ORDER BY s.full_name
+                LIMIT %s
+                """,
+                [pattern, pattern, limit],
+            )
+            rows = cursor.fetchall()
+        return [
+            {"id": row[0], "full_name": row[1], "identifier": row[2], "country_code": row[3], "has_email": bool(row[4])}
+            for row in rows
+        ]
+
+    # Condicion comun: el usuario de Interactive Core pertenece al grupo con el rol pedido.
+    _ROLE_MEMBERSHIP_SQL = """
+        EXISTS (
+            SELECT 1
+            FROM api_user_groups ug
+            INNER JOIN auth_group g ON g.id = ug.group_id
+            LEFT JOIN api_roleprofile rp ON rp.group_id = g.id
+            WHERE ug.user_id = u.id
+              AND COALESCE(rp.code, UPPER(g.name)) = %s
+        )
+    """
+
+    def get_employee_with_role(self, user_id, role_code):
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT u.id, ep.id, ep.full_name, u.email, ep.phone, ep.dni, ep.country_id, c.name
                 FROM api_user u
                 INNER JOIN employee_profile ep ON ep.user_id = u.id
                 LEFT JOIN api_country c ON c.id = ep.country_id
-                WHERE (
-                    CAST(u.id AS TEXT) = %s
-                    OR CAST(ep.id AS TEXT) = %s
-                    OR LOWER(COALESCE(u.username, '')) = LOWER(%s)
-                    OR LOWER(COALESCE(u.email, '')) = LOWER(%s)
-                    OR LOWER(COALESCE(ep.dni, '')) = LOWER(%s)
-                )
-                AND EXISTS (
-                    SELECT 1
-                    FROM api_user_groups ug
-                    INNER JOIN auth_group g ON g.id = ug.group_id
-                    LEFT JOIN api_roleprofile rp ON rp.group_id = g.id
-                    WHERE ug.user_id = u.id
-                      AND COALESCE(rp.code, UPPER(g.name)) = %s
-                )
+                WHERE u.id = %s AND {self._ROLE_MEMBERSHIP_SQL}
                 LIMIT 1
                 """,
-                [identifier, identifier, identifier, identifier, identifier, role_code],
+                [user_id, role_code],
             )
             row = cursor.fetchone()
 
@@ -245,6 +245,34 @@ class InteractiveCoreAccessService:
             "has_prescript_access": True,
         }
 
+    def search_employees_with_role(self, query, role_code, limit=10):
+        pattern = self._escape_like(query)
+        with connections["interactive_core"].cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT u.id, ep.full_name, ep.dni, c.code, COALESCE(TRIM(u.email), '') <> ''
+                FROM api_user u
+                INNER JOIN employee_profile ep ON ep.user_id = u.id
+                LEFT JOIN api_country c ON c.id = ep.country_id
+                WHERE (ep.full_name ILIKE %s OR COALESCE(ep.dni, '') ILIKE %s)
+                  AND {self._ROLE_MEMBERSHIP_SQL}
+                ORDER BY ep.full_name
+                LIMIT %s
+                """,
+                [pattern, pattern, role_code, limit],
+            )
+            rows = cursor.fetchall()
+        return [
+            {"id": row[0], "full_name": row[1], "identifier": row[2], "country_code": row[3], "has_email": bool(row[4])}
+            for row in rows
+        ]
+
+    def get_nurse(self, user_id):
+        return self.get_employee_with_role(user_id, PRESCRIPT_ROLE_NURSE)
+
+    def search_nurses(self, query, limit=10):
+        return self.search_employees_with_role(query, PRESCRIPT_ROLE_NURSE, limit)
+
 
 def user_is_interactive_core_admin(user):
     """Fuente de verdad para el acceso al modulo de administracion de usuarios.
@@ -254,7 +282,7 @@ def user_is_interactive_core_admin(user):
     modulo sin que InteractiveCore respalde ese rol.
     """
     email = getattr(user, "email", "") or ""
-    if not email:
+    if not email or is_external_account(user):
         return False
     try:
         return InteractiveCoreAccessService().has_admin_role(email)

@@ -4,7 +4,7 @@ from rest_framework import serializers
 from api.models import Appointment, DoctorPortalProfile, PatientVitals
 from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
 from api.services.role_access import get_current_prescript_role
-from api.services.secretary_access import get_secretary_assigned_interactive_core_doctor_ids
+from api.services.secretary_access import get_secretary_assigned_doctor_ids
 from api.services.country_scope import get_country_scope
 
 
@@ -19,9 +19,13 @@ TERMINAL_APPOINTMENT_STATUSES = ("attended", "cancelled", "no_show", "superseded
 class AppointmentSerializer(serializers.ModelSerializer):
     doctor = serializers.PrimaryKeyRelatedField(queryset=DoctorPortalProfile.objects.all(), required=False)
     doctor_name = serializers.CharField(source="doctor.full_name", read_only=True)
+    doctor_is_external = serializers.SerializerMethodField()
     patient_name = serializers.CharField(source="patient.full_name", read_only=True)
     patient_phone = serializers.CharField(source="patient.phone", read_only=True)
     last_preclinic_at = serializers.SerializerMethodField()
+
+    def get_doctor_is_external(self, obj):
+        return obj.doctor.origin == "self_registered"
 
     class Meta:
         model = Appointment
@@ -29,6 +33,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "id",
             "doctor",
             "doctor_name",
+            "doctor_is_external",
             "patient",
             "patient_name",
             "patient_phone",
@@ -150,8 +155,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 )
 
         if role == PRESCRIPT_ROLE_SECRETARY and doctor:
-            doctor_ids = get_secretary_assigned_interactive_core_doctor_ids(request.user)
-            if doctor.interactive_core_doctor_id not in doctor_ids:
+            if doctor.id not in get_secretary_assigned_doctor_ids(request.user):
                 raise serializers.ValidationError({"doctor": "El doctor no esta vinculado a esta secretaria."})
 
         return attrs
