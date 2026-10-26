@@ -33,6 +33,13 @@ class Patient(models.Model):
             models.Index(fields=["doctor", "dni"]),
             models.Index(fields=["doctor", "last_name", "first_name"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["doctor", "dni"],
+                condition=models.Q(dni__isnull=False),
+                name="uniq_patient_doctor_dni",
+            ),
+        ]
 
     @property
     def full_name(self):
@@ -91,6 +98,9 @@ class PatientVitals(models.Model):
     class Meta:
         db_table = "patient_vitals"
         ordering = ["-recorded_at"]
+        indexes = [
+            models.Index(fields=["patient", "-recorded_at"], name="vitals_patient_time_idx"),
+        ]
 
     def __str__(self):
         return f"Signos vitales - {self.patient} - {self.recorded_at:%Y-%m-%d}"

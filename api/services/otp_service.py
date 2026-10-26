@@ -44,23 +44,32 @@ class OneTimeCodeService:
         if recent:
             raise serializers.ValidationError({"detail": "Espere un minuto antes de solicitar otro codigo."})
 
-        OneTimeCode.objects.filter(purpose=purpose, target=target, consumed_at__isnull=True).update(consumed_at=now)
         code = f"{secrets.randbelow(1_000_000):06d}"
-        OneTimeCode.objects.create(
+        otp = OneTimeCode.objects.create(
             purpose=purpose,
             target=target,
             code_hash=_hash_code(purpose, target, code),
             expires_at=now + CODE_TTL,
         )
         minutes = int(CODE_TTL.total_seconds() // 60)
-        for email in emails:
-            send_mail(
-                subject,
-                body_template.format(code=code, minutes=minutes),
-                settings.DEFAULT_FROM_EMAIL,
-                [email],
-                fail_silently=False,
-            )
+        try:
+            for email in emails:
+                send_mail(
+                    subject,
+                    body_template.format(code=code, minutes=minutes),
+                    settings.DEFAULT_FROM_EMAIL,
+                    [email],
+                    fail_silently=False,
+                )
+        except Exception:
+            # Un fallo de SMTP no debe consumir el codigo anterior ni iniciar el cooldown.
+            otp.delete()
+            raise
+        OneTimeCode.objects.filter(
+            purpose=purpose,
+            target=target,
+            consumed_at__isnull=True,
+        ).exclude(pk=otp.pk).update(consumed_at=now)
 
     def verify(self, purpose, target, code):
         """Valida el codigo. El intento se confirma en la BD antes de lanzar el error,

@@ -6,18 +6,24 @@ from api.roles import PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY
 from api.services.role_access import get_current_prescript_role
 from api.services.secretary_access import get_secretary_assigned_doctor_ids
 from api.services.country_scope import get_country_scope
-
-
-APPOINTMENT_TIME_CONFLICT_MESSAGE = (
-    "Ese horario ya esta ocupado para este doctor. "
-    "Elige otra hora disponible para continuar."
+from api.services.appointment_service import (
+    ACTIVE_APPOINTMENT_STATUSES,
+    APPOINTMENT_TIME_CONFLICT_MESSAGE,
+    MAX_APPOINTMENT_DURATION_MINUTES,
+    appointment_has_time_conflict,
 )
-ACTIVE_APPOINTMENT_STATUSES = ("scheduled", "rescheduled")
+
+
 TERMINAL_APPOINTMENT_STATUSES = ("attended", "cancelled", "no_show", "superseded")
 
 
 class AppointmentSerializer(serializers.ModelSerializer):
     doctor = serializers.PrimaryKeyRelatedField(queryset=DoctorPortalProfile.objects.all(), required=False)
+    duration_minutes = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_APPOINTMENT_DURATION_MINUTES,
+        required=False,
+    )
     doctor_name = serializers.CharField(source="doctor.full_name", read_only=True)
     doctor_is_external = serializers.SerializerMethodField()
     patient_name = serializers.CharField(source="patient.full_name", read_only=True)
@@ -69,21 +75,12 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return getattr(request.user, "doctor_portal_profile", None)
 
     def _has_time_conflict(self, doctor, scheduled_at, duration_minutes):
-        appointment_end = scheduled_at + timezone.timedelta(minutes=duration_minutes)
-        appointments = Appointment.objects.filter(
+        return appointment_has_time_conflict(
             doctor=doctor,
-            scheduled_at__date=scheduled_at.date(),
-            status__in=ACTIVE_APPOINTMENT_STATUSES,
+            scheduled_at=scheduled_at,
+            duration_minutes=duration_minutes,
+            exclude_pk=getattr(self.instance, "pk", None),
         )
-        if self.instance:
-            appointments = appointments.exclude(pk=self.instance.pk)
-
-        for appointment in appointments.only("scheduled_at", "duration_minutes"):
-            existing_start = appointment.scheduled_at
-            existing_end = existing_start + timezone.timedelta(minutes=appointment.duration_minutes)
-            if existing_start < appointment_end and existing_end > scheduled_at:
-                return True
-        return False
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -107,7 +104,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
         doctor = attrs.get("doctor") or getattr(self.instance, "doctor", None)
         patient = attrs.get("patient") or getattr(self.instance, "patient", None)
         scheduled_at = attrs.get("scheduled_at") or getattr(self.instance, "scheduled_at", None)
-        duration_minutes = attrs.get("duration_minutes") or getattr(self.instance, "duration_minutes", 30)
+        duration_minutes = attrs.get("duration_minutes")
+        if duration_minutes is None:
+            duration_minutes = getattr(self.instance, "duration_minutes", 30)
         incoming_status = attrs.get("status")
 
         if request and doctor and not get_country_scope(request).require_valid().allows(doctor.country_id):
@@ -138,7 +137,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if self.instance is None and incoming_status not in {None, "scheduled"}:
             raise serializers.ValidationError({"status": "Las citas nuevas deben iniciar como agendadas."})
 
-        is_scheduling = self.instance is None or bool({"scheduled_at", "patient", "doctor"} & incoming_fields)
+        is_scheduling = self.instance is None or bool(
+            {"scheduled_at", "duration_minutes", "patient", "doctor"} & incoming_fields
+        )
         if is_scheduling and patient and scheduled_at:
             if scheduled_at < timezone.now():
                 raise serializers.ValidationError(

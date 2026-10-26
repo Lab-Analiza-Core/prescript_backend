@@ -15,7 +15,10 @@ django.setup()
 
 from django.db import connections
 
-for alias in ("default", "interactive_core"):
+aliases = ["default"]
+if os.environ.get("REQUIRE_INTERACTIVE_CORE_ON_STARTUP", "false").lower() in {"1", "true", "yes"}:
+    aliases.append("interactive_core")
+for alias in aliases:
     connections[alias].ensure_connection()
     print(f"{alias}=OK")
 PY

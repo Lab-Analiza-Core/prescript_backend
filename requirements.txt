@@ -6,4 +6,5 @@ djangorestframework_simplejwt==5.5.0
 gunicorn==23.0.0
 psycopg2-binary==2.9.10
 requests==2.32.5
+redis==8.1.0
 whitenoise==6.9.0

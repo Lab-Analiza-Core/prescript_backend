@@ -34,8 +34,18 @@ class Appointment(models.Model):
         db_table = "appointments"
         ordering = ["scheduled_at"]
         indexes = [
-            models.Index(fields=["doctor", "scheduled_at"]),
+            models.Index(
+                fields=["doctor", "scheduled_at"],
+                condition=models.Q(status__in=("scheduled", "rescheduled")),
+                name="appt_active_doctor_time_idx",
+            ),
             models.Index(fields=["patient", "scheduled_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(duration_minutes__gt=0, duration_minutes__lte=1440),
+                name="appointment_duration_valid",
+            ),
         ]
 
     def __str__(self):

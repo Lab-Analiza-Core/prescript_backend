@@ -24,6 +24,7 @@ from .organization_models import (
 )
 from .patient_models import Patient, PatientMedicalProfile, PatientScore, PatientVitals
 from .prescription_models import Prescription, PrescriptionItem
+from .theme_models import ThemeSetting
 
 __all__ = [
     "AffiliationRequest",
@@ -53,5 +54,6 @@ __all__ = [
     "SpecialtyCatalogMirror",
     "TermsAcceptance",
     "TermsVersion",
+    "ThemeSetting",
     "UserCountryAccess",
 ]

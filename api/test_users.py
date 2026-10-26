@@ -76,6 +76,56 @@ class AdminUserManagementTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Group.objects.filter(name="SECRETARY", user__email="nueva.secretaria@test.local").exists())
 
+    def test_create_user_requires_name_email_and_role(self):
+        self.client.force_authenticate(self.admin_user)
+        base = {
+            "username": "incompleto@test.local",
+            "email": "incompleto@test.local",
+            "first_name": "Ana",
+            "last_name": "Perez",
+            "password": "Temporal123!",
+            "roles": ["SECRETARY"],
+            "country_code": "HN",
+        }
+        for field, value in (("first_name", ""), ("last_name", ""), ("email", ""), ("roles", [])):
+            with self.subTest(field=field):
+                response = self.client.post("/api/v1/admin/users", {**base, field: value}, format="json")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn(field, response.data)
+
+    def test_edit_user_cannot_blank_name(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.doctor_user.pk}",
+            {"first_name": ""},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("first_name", response.data)
+
+    def test_user_list_is_paginated_only_when_requested(self):
+        for index in range(12):
+            create_user(
+                username=f"paginado{index}@test.local",
+                email=f"paginado{index}@test.local",
+                password="Pagina1234!",
+                roles=["SECRETARY"],
+            )
+        self.client.force_authenticate(self.admin_user)
+
+        full = self.client.get("/api/v1/admin/users")
+        first = self.client.get("/api/v1/admin/users?page=1")
+        second = self.client.get("/api/v1/admin/users?page=2")
+
+        self.assertIsInstance(full.data, list)
+        self.assertGreaterEqual(len(full.data), 14)
+        self.assertEqual(first.data["count"], len(full.data))
+        self.assertEqual(len(first.data["results"]), 10)
+        self.assertEqual(len(second.data["results"]), len(full.data) - 10 if len(full.data) < 21 else 10)
+        self.assertIsNotNone(first.data["next"])
+
     def test_admin_password_reset_generates_temporary_password(self):
         self.client.force_authenticate(self.admin_user)
 
@@ -97,6 +147,7 @@ class AdminUserManagementTests(TestCase):
             email="fake-admin@test.local",
             password="FakeAdmin123!",
             roles=["ADMIN"],
+            trusted_admin=False,
         )
         self.client.force_authenticate(local_only_admin)
 

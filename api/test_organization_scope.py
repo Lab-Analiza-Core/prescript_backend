@@ -111,7 +111,7 @@ class PatientVisibilityTests(OrganizationScopeBase):
         self.client.force_authenticate(nurse.user)
         response = self.client.post(
             "/api/v1/patients",
-            {"first_name": "X", "last_name": "Y", "doctor": self.doctor_b.id},
+            {"first_name": "X", "last_name": "Y", "dni": "0801199012345", "phone": "88881234", "doctor": self.doctor_b.id},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)

@@ -36,14 +36,16 @@ def _group_names(user):
 def is_global_admin_user(user):
     if user.is_superuser:
         return True
-    group_names = {name.upper() for name in _group_names(user)}
-    if PRESCRIPT_ROLE_ADMIN in group_names:
-        return True
+    # El grupo local ADMIN no es una fuente de autoridad. Puede asignarse desde
+    # Django Admin o desde el modulo local de usuarios y, por si solo, no debe
+    # abrir el alcance clinico global. Los accesos globales confiables son los
+    # sincronizados desde Interactive Core.
     return UserCountryAccess.objects.filter(
         user=user,
         role_code=PRESCRIPT_ROLE_ADMIN,
         country__isnull=True,
         is_active=True,
+        source="interactive_core",
     ).exists()
 
 
@@ -66,6 +68,11 @@ def _allowed_countries(user):
     if profile_country:
         country_ids.add(profile_country.id)
     return Country.objects.filter(id__in=country_ids, is_active=True).order_by("name")
+
+
+def get_allowed_country_ids(user):
+    """Paises activos a los que tiene acceso un administrador por pais."""
+    return list(_allowed_countries(user).values_list("id", flat=True))
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,10 @@
+import sys
 from datetime import timedelta
 from pathlib import Path
 
 import environ
 from corsheaders.defaults import default_headers
+from django.core.exceptions import ImproperlyConfigured
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +14,9 @@ environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("SECRET_KEY", default="prescript-local-dev-key")
 DEBUG = env("DEBUG")
+IS_TESTING = "test" in sys.argv
+if not DEBUG and SECRET_KEY == "prescript-local-dev-key":
+    raise ImproperlyConfigured("SECRET_KEY debe configurarse fuera de desarrollo.")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 DEFAULT_CLIENT_ORIGINS = [
@@ -106,7 +111,6 @@ DATABASES = {
     "default": postgres_config("PRESCRIPT", "prescript_db"),
     "interactive_core": postgres_config("INTERACTIVE_CORE", "interactivecore_db"),
 }
-
 # El modulo de administracion de usuarios valida el rol ADMIN contra esta BD
 # en cada request; si InteractiveCore esta lento o caido, la consulta debe
 # fallar rapido en vez de colgar el request.
@@ -116,6 +120,10 @@ DATABASES["interactive_core"]["OPTIONS"]["options"] = "-c statement_timeout=3000
 legacy_database_url = env("DATABASE_URL", default="")
 if legacy_database_url:
     DATABASES["default"] = env.db("DATABASE_URL")
+
+for database in DATABASES.values():
+    database["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
+    database["CONN_HEALTH_CHECKS"] = True
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -137,6 +145,8 @@ REST_FRAMEWORK = {
         "otp": "10/hour",
         "catalog": "120/hour",
         "affiliation_search": "60/hour",
+        "login": "10/minute",
+        "token_refresh": "30/minute",
     },
 }
 
@@ -145,7 +155,24 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    "CHECK_REVOKE_TOKEN": True,
 }
+
+redis_url = env("REDIS_URL", default="")
+if redis_url:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": redis_url,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+            "LOCATION": BASE_DIR / ".cache",
+        }
+    }
 
 LANGUAGE_CODE = "es-hn"
 TIME_ZONE = "America/Tegucigalpa"
@@ -174,6 +201,21 @@ EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "no-reply@prescript.local")
+if not DEBUG and EMAIL_BACKEND.endswith("console.EmailBackend"):
+    raise ImproperlyConfigured("Configure un backend de correo real fuera de desarrollo.")
+
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG and not IS_TESTING)
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/health$"]
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000 if not DEBUG else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=not DEBUG)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=not DEBUG)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+if env.bool("TRUST_PROXY_SSL_HEADER", default=not DEBUG):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INTERACTIVE_CORE_API_BASE_URL = env("INTERACTIVE_CORE_API_BASE_URL", default="")
 INTERACTIVE_CORE_API_TOKEN = env("INTERACTIVE_CORE_API_TOKEN", default="")

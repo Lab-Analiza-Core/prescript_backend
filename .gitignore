@@ -12,5 +12,6 @@ staticfiles/
 media/
 
 .pytest_cache/
+.cache/
 .coverage
 htmlcov/

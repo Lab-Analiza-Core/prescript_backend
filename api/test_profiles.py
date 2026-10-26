@@ -2,6 +2,7 @@ from django.test import TestCase
 
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from api.test_factories import create_doctor, create_nurse, create_user
 
@@ -85,6 +86,7 @@ class UserProfileUpdateTests(TestCase):
         response = self.client.patch(
             "/api/v1/auth/me",
             {
+                "current_password": "Doctor1234!",
                 "new_password": "Nuevo1234!",
                 "password_confirm": "Nuevo1234!",
             },
@@ -95,10 +97,29 @@ class UserProfileUpdateTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("Nuevo1234!"))
 
+    def test_password_change_revokes_existing_access_tokens(self):
+        access = str(RefreshToken.for_user(self.user).access_token)
+        token_client = APIClient(HTTP_AUTHORIZATION=f"Bearer {access}", HTTP_HOST="localhost")
+
+        changed = token_client.patch(
+            "/api/v1/auth/me",
+            {
+                "current_password": "Doctor1234!",
+                "new_password": "Nuevo1234!",
+                "password_confirm": "Nuevo1234!",
+            },
+            format="json",
+        )
+        rejected = token_client.get("/api/v1/auth/me")
+
+        self.assertEqual(changed.status_code, status.HTTP_200_OK)
+        self.assertEqual(rejected.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_user_cannot_change_password_when_confirmation_does_not_match(self):
         response = self.client.patch(
             "/api/v1/auth/me",
             {
+                "current_password": "Doctor1234!",
                 "new_password": "Nuevo1234!",
                 "password_confirm": "Distinta123!",
             },
@@ -109,5 +130,16 @@ class UserProfileUpdateTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("Doctor1234!"))
 
+    def test_user_cannot_change_password_without_correct_current_password(self):
+        for extra in ({}, {"current_password": "Incorrecta123!"}):
+            with self.subTest(extra=extra):
+                response = self.client.patch(
+                    "/api/v1/auth/me",
+                    {"new_password": "Nuevo1234!", "password_confirm": "Nuevo1234!", **extra},
+                    format="json",
+                )
 
-
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("current_password", response.data)
+                self.user.refresh_from_db()
+                self.assertTrue(self.user.check_password("Doctor1234!"))

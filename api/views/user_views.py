@@ -9,6 +9,7 @@ from api.permissions import IsPrescriptAdmin, IsPrescriptAdminOrOrgAdmin
 from api.services.account_origin import EXTERNAL_ORIGIN
 from api.services.country_scope import is_global_admin_user
 from api.services.organization_scope import get_organization_scope
+from api.utils.pagination import OptionalPageNumberPagination
 from api.serializers.user_serializers import AdminUserSerializer, UserPasswordResetSerializer
 from api.services.country_scope import get_country_scope
 
@@ -59,6 +60,7 @@ def country_scoped_users(request):
 
 class AdminUserListCreateView(generics.ListCreateAPIView):
     serializer_class = AdminUserSerializer
+    pagination_class = OptionalPageNumberPagination
 
     def get_permissions(self):
         permission = IsPrescriptAdminOrOrgAdmin if self.request.method == "GET" else IsPrescriptAdmin

@@ -41,6 +41,7 @@ from api.services.organization_admin_service import (
     set_member_active,
     users_in_organizations,
 )
+from api.utils.pagination import OptionalPageNumberPagination
 from api.services.organization_service import OrganizationAdminService
 from api.services.registration_service import get_current_terms
 
@@ -49,6 +50,7 @@ class OrganizationListCreateView(generics.ListCreateAPIView):
     """Formulario de organizaciones: la crea el administrador global; el de organizacion solo ve la suya."""
 
     serializer_class = OrganizationSerializer
+    pagination_class = OptionalPageNumberPagination
 
     def get_permissions(self):
         permission = IsOrganizationManager if self.request.method == "GET" else IsGlobalAdmin
@@ -82,6 +84,7 @@ class OrganizationDetailView(generics.RetrieveUpdateAPIView):
 class InvitationListCreateView(generics.ListCreateAPIView):
     serializer_class = OrganizationInvitationSerializer
     permission_classes = [IsOrganizationManager]
+    pagination_class = OptionalPageNumberPagination
 
     def get_organization(self):
         organization = manageable_organizations(self.request.user).filter(pk=self.kwargs["organization_id"]).first()
@@ -160,6 +163,10 @@ class MemberListView(APIView):
         role = request.query_params.get("role", "").strip().upper()
         if role:
             members = [member for member in members if member["role"] == role]
+        paginator = OptionalPageNumberPagination()
+        page = paginator.paginate_queryset(members, request, view=self)
+        if page is not None:
+            return paginator.get_paginated_response(page)
         return Response(members)
 
 
@@ -189,6 +196,7 @@ class MemberStatusView(APIView):
 class SecretaryAssignmentListCreateView(generics.ListCreateAPIView):
     serializer_class = SecretaryAssignmentSerializer
     permission_classes = [IsOrganizationManager]
+    pagination_class = OptionalPageNumberPagination
 
     def get_queryset(self):
         allowed = manageable_organization_ids(self.request.user)
@@ -216,6 +224,7 @@ class SecretaryAssignmentDetailView(generics.DestroyAPIView):
 class OrgAdminRequestListView(generics.ListAPIView):
     serializer_class = OrgAdminProfileSerializer
     permission_classes = [IsGlobalAdmin]
+    pagination_class = OptionalPageNumberPagination
 
     def get_queryset(self):
         queryset = OrganizationAdminProfile.objects.select_related("organization", "country")
@@ -250,6 +259,7 @@ class TermsVersionListCreateView(generics.ListCreateAPIView):
 
     serializer_class = TermsVersionSerializer
     permission_classes = [IsGlobalAdmin]
+    pagination_class = OptionalPageNumberPagination
     queryset = TermsVersion.objects.all()
 
     def perform_create(self, serializer):

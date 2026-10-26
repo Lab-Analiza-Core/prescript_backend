@@ -128,6 +128,13 @@ class UserProfileUpdateSerializer(serializers.Serializer):
             if new_password != password_confirm:
                 raise serializers.ValidationError({"password_confirm": "Las contrasenas no coinciden."})
             user = self.context["request"].user
+            current_password = attrs.get("current_password")
+            if not current_password:
+                raise serializers.ValidationError({"current_password": "Ingrese su contrasena actual."})
+            if not user.check_password(current_password):
+                raise serializers.ValidationError({"current_password": "La contrasena actual es incorrecta."})
+            if new_password == current_password:
+                raise serializers.ValidationError({"new_password": "La nueva contrasena debe ser distinta de la actual."})
             validate_password(new_password, user=user)
 
         return attrs

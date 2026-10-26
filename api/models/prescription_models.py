@@ -27,6 +27,9 @@ class Prescription(models.Model):
     class Meta:
         db_table = "prescriptions"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["doctor", "-created_at"], name="rx_doctor_created_idx"),
+        ]
 
     def __str__(self):
         return f"Receta #{self.pk} - {self.patient}"

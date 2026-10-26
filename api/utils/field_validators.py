@@ -93,6 +93,28 @@ def validate_and_format_dni(value, country="HN", required=False):
     return apply_numeric_mask(digits, mask)
 
 
+def validate_contact_required(dni, phone, country="HN"):
+    """
+    Guatemala: basta con DNI o telefono. Resto de paises: ambos obligatorios.
+    Devuelve {campo: mensaje} con lo que falta.
+    """
+    has_dni = bool(str(dni or "").strip())
+    has_phone = bool(str(phone or "").strip())
+    country_code = getattr(country, "code", country)
+    if str(country_code or "HN").strip().upper() == "GT":
+        if has_dni or has_phone:
+            return {}
+        message = "Ingrese el DNI o el telefono del paciente."
+        return {"dni": message, "phone": message}
+
+    errors = {}
+    if not has_dni:
+        errors["dni"] = "El DNI es requerido."
+    if not has_phone:
+        errors["phone"] = "El telefono es requerido."
+    return errors
+
+
 def validate_and_format_phone(value, country="HN", required=False):
     if value in {None, ""}:
         if required:

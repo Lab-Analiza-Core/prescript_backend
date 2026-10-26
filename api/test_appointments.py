@@ -99,6 +99,7 @@ class AppointmentSchedulingTests(TestCase):
                 "first_name": "Paciente",
                 "last_name": "Sin Grupo",
                 "dni": "0801199012345",
+                "phone": "88881234",
             },
             format="json",
         )
@@ -149,6 +150,58 @@ class AppointmentSchedulingTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Ese horario ya esta ocupado para este doctor", str(response.data))
+
+    def test_cannot_schedule_overlap_across_midnight(self):
+        next_midnight = (timezone.localtime(timezone.now()) + timezone.timedelta(days=2)).replace(
+            hour=0,
+            minute=10,
+            second=0,
+            microsecond=0,
+        )
+        create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=next_midnight - timezone.timedelta(minutes=20),
+            duration_minutes=40,
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.post(
+            "/api/v1/appointments",
+            {
+                "patient": self.patient.id,
+                "scheduled_at": next_midnight.isoformat(),
+                "duration_minutes": 30,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scheduled_at", response.data)
+
+    def test_cannot_extend_appointment_into_another_slot(self):
+        appointment = create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=self.scheduled_at,
+            duration_minutes=30,
+        )
+        create_appointment(
+            doctor=self.doctor,
+            patient=self.patient,
+            scheduled_at=self.scheduled_at + timezone.timedelta(minutes=45),
+            duration_minutes=30,
+        )
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.patch(
+            f"/api/v1/appointments/{appointment.id}",
+            {"duration_minutes": 60},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scheduled_at", response.data)
 
     def test_different_doctors_can_schedule_same_time(self):
         other_user = create_user(
@@ -252,6 +305,42 @@ class AppointmentSchedulingTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Appointment.objects.filter(scheduled_at=past_date).exists())
 
+    def test_appointment_duration_must_be_positive(self):
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.post(
+            "/api/v1/appointments",
+            {
+                "patient": self.patient.id,
+                "scheduled_at": self.scheduled_at.isoformat(),
+                "duration_minutes": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("duration_minutes", response.data)
+
+    def test_vitals_cannot_link_patient_to_another_doctors_appointment(self):
+        other_user = create_user("vitals-other-doctor@test.local", roles=["DOCTOR"])
+        other_doctor = create_doctor(user=other_user, interactive_core_doctor_id=987)
+        other_patient = create_patient(other_doctor, first_name="Otro", last_name="Paciente")
+        other_appointment = create_appointment(other_doctor, other_patient, self.scheduled_at)
+        self.client.force_authenticate(self.doctor_user)
+
+        response = self.client.post(
+            "/api/v1/patients/vitals",
+            {
+                "patient": self.patient.id,
+                "appointment": other_appointment.id,
+                "weight_kg": "70.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("appointment", response.data)
+
     def test_nurse_cannot_schedule_appointment(self):
         self.client.force_authenticate(self.nurse_user)
 
@@ -296,6 +385,104 @@ class AppointmentSchedulingTests(TestCase):
         self.assertEqual(response.data["doctor"], self.doctor.id)
         self.assertEqual(response.data["dni"], "1223-4343-43434")
         self.assertEqual(response.data["phone"], "4355-4675")
+
+    def test_patient_requires_dni_and_phone_in_honduras(self):
+        self.client.force_authenticate(self.doctor_user)
+
+        for field in ("dni", "phone"):
+            with self.subTest(missing=field):
+                payload = {"first_name": "Paciente", "last_name": "Incompleto", "dni": "0801199012345", "phone": "88881234"}
+                payload.pop(field)
+                response = self.client.post("/api/v1/patients", payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn(field, response.data)
+
+    def test_patient_requires_dni_or_phone_in_guatemala(self):
+        gt_user = create_user(
+            username="doctor-gt-patient@test.local",
+            email="doctor-gt-patient@test.local",
+            password="Doctor1234!",
+            roles=["DOCTOR"],
+        )
+        create_doctor(user=gt_user, interactive_core_doctor_id=498, country="GT")
+        self.client.force_authenticate(gt_user)
+
+        empty = self.client.post("/api/v1/patients", {"first_name": "Ana", "last_name": "Gt"}, format="json")
+        with_phone = self.client.post(
+            "/api/v1/patients", {"first_name": "Ana", "last_name": "Gt", "phone": "31423325"}, format="json"
+        )
+
+        self.assertEqual(empty.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", empty.data)
+        self.assertEqual(with_phone.status_code, status.HTTP_201_CREATED)
+
+    def test_patient_without_dni_requires_confirmation_for_same_name(self):
+        gt_user = create_user(
+            username="doctor-gt-duplicate@test.local",
+            email="doctor-gt-duplicate@test.local",
+            password="Doctor1234!",
+            roles=["DOCTOR"],
+        )
+        create_doctor(user=gt_user, interactive_core_doctor_id=499, country="GT")
+        self.client.force_authenticate(gt_user)
+        first_payload = {
+            "first_name": "Ana",
+            "last_name": "Lopez",
+            "phone": "31423325",
+        }
+        duplicate_payload = {
+            "first_name": "Ana",
+            "last_name": "Lopez",
+            "phone": "31423326",
+        }
+
+        first = self.client.post("/api/v1/patients", first_payload, format="json")
+        duplicate = self.client.post("/api/v1/patients", duplicate_payload, format="json")
+        confirmed = self.client.post(
+            "/api/v1/patients",
+            {**duplicate_payload, "confirm_duplicate": True},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("confirm_duplicate", duplicate.data)
+        self.assertEqual(confirmed.status_code, status.HTTP_201_CREATED)
+
+    def test_patient_list_paginates_by_ten_on_request(self):
+        self.client.force_authenticate(self.doctor_user)
+        for index in range(11):
+            create_patient(self.doctor, first_name=f"Pac{index:02d}", last_name="Paginado")
+
+        full = self.client.get("/api/v1/patients")
+        page = self.client.get("/api/v1/patients?page=1")
+        last = self.client.get("/api/v1/patients?page=2&search=Paginado")
+
+        self.assertIsInstance(full.data, list)
+        self.assertEqual(page.data["count"], len(full.data))
+        self.assertEqual(len(page.data["results"]), 10)
+        self.assertEqual(last.data["count"], 11)
+        self.assertEqual(len(last.data["results"]), 1)
+
+    def test_patient_list_filters(self):
+        self.client.force_authenticate(self.doctor_user)
+        ana = create_patient(self.doctor, first_name="Ana", last_name="Lopez", sex="F")
+        luis = create_patient(self.doctor, first_name="Luis", last_name="Mejia", sex="M")
+        inactive = create_patient(self.doctor, first_name="Zoe", last_name="Baja", sex="F", is_active=False)
+
+        def ids(query):
+            response = self.client.get(f"/api/v1/patients{query}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return {item["id"] for item in response.data}
+
+        self.assertTrue({ana.id, luis.id} <= ids(""))
+        self.assertNotIn(inactive.id, ids(""))
+        self.assertEqual(ids("?search=mejia") & {ana.id, luis.id}, {luis.id})
+        self.assertEqual(ids("?sex=F") & {ana.id, luis.id}, {ana.id})
+        self.assertEqual(ids("?is_active=false"), {inactive.id})
+        self.assertIn(inactive.id, ids("?is_active=all"))
+        self.assertEqual(ids(f"?doctor={self.doctor.id + 999}"), set())
+        self.assertEqual(ids("?created_from=2999-01-01"), set())
 
     def test_patient_dni_and_phone_must_match_country_masks(self):
         self.client.force_authenticate(self.doctor_user)

@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from api.utils.pagination import OptionalPageNumberPagination
 from api.models import AffiliationRequest
 from api.permissions import IsPrescriptAdmin
 from api.roles import PRESCRIPT_ROLE_DOCTOR
@@ -146,6 +147,7 @@ def _scoped_requests(request):
 class AffiliationRequestListView(generics.ListAPIView):
     serializer_class = AffiliationReviewSerializer
     permission_classes = [IsPrescriptAdmin]
+    pagination_class = OptionalPageNumberPagination
 
     def get_queryset(self):
         queryset = _scoped_requests(self.request)

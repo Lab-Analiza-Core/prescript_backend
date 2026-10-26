@@ -72,6 +72,11 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "password",
         ]
         read_only_fields = ["id", "full_name", "primary_role", "profile", "is_superuser", "last_login", "date_joined"]
+        extra_kwargs = {
+            "first_name": {"required": True, "allow_blank": False, "error_messages": {"blank": "Ingrese el nombre.", "required": "Ingrese el nombre."}},
+            "last_name": {"required": True, "allow_blank": False, "error_messages": {"blank": "Ingrese el apellido.", "required": "Ingrese el apellido."}},
+            "email": {"required": True, "allow_blank": False, "error_messages": {"blank": "Ingrese el correo.", "required": "Ingrese el correo."}},
+        }
 
     def get_full_name(self, user):
         profile = get_user_profile_summary(user)
@@ -105,7 +110,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["roles"] = normalize_prescript_roles(instance.groups.values_list("name", flat=True))
+        prefetched_groups = getattr(instance, "_prefetched_objects_cache", {}).get("groups")
+        group_names = (
+            [group.name for group in prefetched_groups]
+            if prefetched_groups is not None
+            else instance.groups.values_list("name", flat=True)
+        )
+        data["roles"] = normalize_prescript_roles(group_names)
         return data
 
     def validate_country_code(self, value):
@@ -147,6 +158,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
         roles = attrs.get("roles")
         if roles is None and self.instance:
             roles = normalize_prescript_roles(self.instance.groups.values_list("name", flat=True))
+        if "roles" in attrs and not attrs["roles"]:
+            raise serializers.ValidationError({"roles": "Selecciona al menos un rol."})
+        if roles is None and not self.instance:
+            raise serializers.ValidationError({"roles": "Selecciona al menos un rol."})
         country_code = attrs.get("country_code")
         if country_code is None and self.instance:
             country = self._get_user_country(self.instance)

@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 
 from api.models import Prescription, PrescriptionItem
@@ -45,16 +46,22 @@ class PrescriptionSerializer(serializers.ModelSerializer):
         doctor = getattr(getattr(request, "user", None), "doctor_portal_profile", None)
         patient = attrs.get("patient")
         appointment = attrs.get("appointment")
+        items = attrs.get("items", [])
+        if not items:
+            raise serializers.ValidationError({"items": "La receta debe incluir al menos un medicamento."})
         if doctor and patient and patient.doctor_id != doctor.id:
             raise serializers.ValidationError({"patient": "El paciente no pertenece al doctor autenticado."})
         if doctor and appointment and appointment.doctor_id != doctor.id:
             raise serializers.ValidationError({"appointment": "La cita no pertenece al doctor autenticado."})
-        for item in attrs.get("items", []):
+        if appointment and patient and appointment.patient_id != patient.id:
+            raise serializers.ValidationError({"appointment": "La cita no pertenece al paciente seleccionado."})
+        for item in items:
             medicine = item.get("medicine")
             if doctor and medicine and medicine.country_id != doctor.country_id:
                 raise serializers.ValidationError({"items": "Todos los medicamentos deben pertenecer al pais del doctor."})
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
         prescription = Prescription.objects.create(**validated_data)

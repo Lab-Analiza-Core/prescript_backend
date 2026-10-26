@@ -1,7 +1,8 @@
+from django.db.models import Q
 from rest_framework import serializers
 
 from api.models import DoctorPortalProfile, Patient, PatientMedicalProfile, PatientVitals
-from api.utils.field_validators import validate_and_format_dni, validate_and_format_phone
+from api.utils.field_validators import validate_and_format_dni, validate_and_format_phone, validate_contact_required
 
 
 class PatientMedicalProfileSerializer(serializers.ModelSerializer):
@@ -53,15 +54,24 @@ class PatientSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "doctor_name", "doctor_is_external", "patient_score", "created_at", "updated_at"]
+        # La unicidad (doctor, dni) se valida en validate() con el doctor resuelto desde el request.
+        validators = []
 
     def get_doctor_is_external(self, obj):
         return obj.doctor.origin == "self_registered"
 
     def get_latest_vitals(self, obj):
+        prefetched = getattr(obj, "_recent_vitals", None)
+        if prefetched is not None:
+            latest = prefetched[0] if prefetched else None
+            return PatientVitalsSerializer(latest).data if latest else None
         latest = obj.vitals.order_by("-recorded_at").first()
         return PatientVitalsSerializer(latest).data if latest else None
 
     def get_recent_vitals(self, obj):
+        prefetched = getattr(obj, "_recent_vitals", None)
+        if prefetched is not None:
+            return PatientVitalsSerializer(prefetched, many=True).data
         vitals = obj.vitals.order_by("-recorded_at")[:5]
         return PatientVitalsSerializer(vitals, many=True).data
 
@@ -91,6 +101,14 @@ class PatientSerializer(serializers.ModelSerializer):
         if errors:
             raise serializers.ValidationError(errors)
 
+        contact_errors = validate_contact_required(
+            attrs.get("dni", getattr(self.instance, "dni", None)),
+            attrs.get("phone", getattr(self.instance, "phone", None)),
+            country,
+        )
+        if contact_errors:
+            raise serializers.ValidationError(contact_errors)
+
         doctor = attrs.get("doctor")
         if not doctor and self.instance:
             doctor = self.instance.doctor
@@ -104,6 +122,24 @@ class PatientSerializer(serializers.ModelSerializer):
                 queryset = queryset.exclude(pk=self.instance.pk)
             if queryset.exists():
                 raise serializers.ValidationError({"dni": "Ya existe un paciente con este DNI para el doctor seleccionado."})
+
+        request = self.context.get("request")
+        confirmed = str(getattr(request, "data", {}).get("confirm_duplicate", "")).lower() in {"1", "true"}
+        if doctor and not dni and not self.instance and not confirmed:
+            first = (attrs.get("first_name") or "").strip()
+            last = (attrs.get("last_name") or "").strip()
+            homonyms = Patient.objects.filter(
+                doctor=doctor, first_name__iexact=first, last_name__iexact=last
+            ).filter(Q(dni__isnull=True) | Q(dni=""))
+            if first and homonyms.exists():
+                raise serializers.ValidationError(
+                    {
+                        "confirm_duplicate": [
+                            "Ya existe un paciente sin DNI con este nombre. "
+                            "Revise los datos y confirme si se trata de otra persona."
+                        ]
+                    }
+                )
 
         return attrs
 
@@ -143,6 +179,20 @@ class PatientVitalsSerializer(serializers.ModelSerializer):
             "recorded_at",
         ]
         read_only_fields = ["id", "recorded_at"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        patient = attrs.get("patient") or getattr(self.instance, "patient", None)
+        appointment = attrs.get("appointment") or getattr(self.instance, "appointment", None)
+        if appointment and patient and appointment.patient_id != patient.id:
+            raise serializers.ValidationError(
+                {"appointment": "La cita seleccionada no pertenece al paciente."}
+            )
+        if appointment and patient and appointment.doctor_id != patient.doctor_id:
+            raise serializers.ValidationError(
+                {"appointment": "La cita seleccionada no pertenece al doctor del paciente."}
+            )
+        return attrs
 
 
 class PreclinicVitalsSerializer(serializers.ModelSerializer):

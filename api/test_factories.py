@@ -1,7 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
-from api.models import Appointment, Country, DoctorPortalProfile, NursePortalProfile, Patient, PatientVitals, SecretaryPortalProfile
+from api.models import (
+    Appointment,
+    Country,
+    DoctorPortalProfile,
+    NursePortalProfile,
+    Patient,
+    PatientVitals,
+    SecretaryPortalProfile,
+    UserCountryAccess,
+)
 
 
 DEFAULT_PASSWORD = "Doctor1234!"
@@ -13,7 +22,7 @@ def get_country(value="HN"):
     return Country.objects.get(code=str(value or "HN").upper())
 
 
-def create_user(username, email=None, password=DEFAULT_PASSWORD, roles=None, **extra_fields):
+def create_user(username, email=None, password=DEFAULT_PASSWORD, roles=None, trusted_admin=True, **extra_fields):
     email = email or username
     user = get_user_model().objects.create_user(
         username=username,
@@ -23,6 +32,13 @@ def create_user(username, email=None, password=DEFAULT_PASSWORD, roles=None, **e
     )
     for role in roles or []:
         Group.objects.get_or_create(name=role)[0].user_set.add(user)
+        if role == "ADMIN" and trusted_admin:
+            UserCountryAccess.objects.create(
+                user=user,
+                role_code="ADMIN",
+                country=None,
+                source="interactive_core",
+            )
     return user
 
 

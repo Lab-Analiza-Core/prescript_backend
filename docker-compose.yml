@@ -7,10 +7,9 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: Prescript.settings
       TZ: America/Tegucigalpa
-      PRESCRIPT_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/prescript_db
-      INTERACTIVE_CORE_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/interactivecore_db
       PRESCRIPT_HOST: host.docker.internal
       INTERACTIVE_CORE_HOST: host.docker.internal
+      REDIS_URL: redis://redis:6379/1
       DATABASE_URL: ""
       DOCTOR_SYNC_QUEUE_ENABLED: "false"
       DOCTOR_SYNC_ENABLED: "false"
@@ -18,6 +17,9 @@ services:
       DOCTOR_SYNC_TARGET_DATABASE_URL: ""
     ports:
       - "8003:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - staticfiles:/app/staticfiles
@@ -26,7 +28,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/login/', timeout=5)\" || exit 1",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)\" || exit 1",
         ]
       interval: 30s
       timeout: 10s
@@ -34,6 +36,16 @@ services:
       start_period: 40s
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   staticfiles:

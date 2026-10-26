@@ -2,7 +2,7 @@ import logging
 
 from django.contrib.auth.models import Group
 from django.conf import settings
-from django.db import DatabaseError, connections
+from django.db import DatabaseError, connections, transaction
 from rest_framework.exceptions import APIException
 
 from api.roles import PRESCRIPT_ROLE_ADMIN, PRESCRIPT_ROLE_NURSE, PRESCRIPT_ROLE_SECRETARY
@@ -81,39 +81,47 @@ class InteractiveCoreAccessService:
         if is_external_account(user):
             return []
         workspaces = self.get_user_workspaces(user.email)
-        UserCountryAccess.objects.filter(user=user, source="interactive_core").delete()
-        admin_groups = list(
-            user.groups.filter(name__startswith=COUNTRY_ADMIN_ROLE_PREFIX)
-        )
-        admin_groups.extend(user.groups.filter(name=PRESCRIPT_ROLE_ADMIN))
-        if admin_groups:
-            user.groups.remove(*admin_groups)
+        # La lectura remota ocurre antes de abrir la transaccion local. El
+        # reemplazo de permisos, en cambio, debe ser atomico: nunca dejar al
+        # usuario con la mitad de sus workspaces si una escritura falla.
+        with transaction.atomic():
+            UserCountryAccess.objects.filter(user=user, source="interactive_core").delete()
+            admin_groups = list(user.groups.filter(name__startswith=COUNTRY_ADMIN_ROLE_PREFIX))
+            admin_groups.extend(user.groups.filter(name=PRESCRIPT_ROLE_ADMIN))
+            if admin_groups:
+                user.groups.remove(*admin_groups)
 
-        if not workspaces:
-            return []
+            if not workspaces:
+                return []
 
-        synced = []
-        for workspace in workspaces:
-            source_country = workspace["country"]
-            country = get_or_create_country(
-                {
-                    "country": source_country,
-                    "country_id": source_country.get("id") if source_country else None,
-                }
-            ) if source_country else None
-            role_code = workspace["role_code"]
-            canonical_role = PRESCRIPT_ROLE_ADMIN if workspace["is_admin"] else normalize_prescript_role(role_code)
-            local_group_code = role_code if workspace["is_admin"] else canonical_role
-            group, _ = Group.objects.get_or_create(name=local_group_code)
-            user.groups.add(group)
-            access, _ = UserCountryAccess.objects.update_or_create(
-                user=user,
-                role_code=canonical_role,
-                country=country,
-                defaults={"is_active": True, "source": "interactive_core"},
-            )
-            synced.append(access)
-        return synced
+            synced = []
+            for workspace in workspaces:
+                source_country = workspace["country"]
+                country = (
+                    get_or_create_country(
+                        {
+                            "country": source_country,
+                            "country_id": source_country.get("id") if source_country else None,
+                        }
+                    )
+                    if source_country
+                    else None
+                )
+                role_code = workspace["role_code"]
+                canonical_role = (
+                    PRESCRIPT_ROLE_ADMIN if workspace["is_admin"] else normalize_prescript_role(role_code)
+                )
+                local_group_code = role_code if workspace["is_admin"] else canonical_role
+                group, _ = Group.objects.get_or_create(name=local_group_code)
+                user.groups.add(group)
+                access, _ = UserCountryAccess.objects.update_or_create(
+                    user=user,
+                    role_code=canonical_role,
+                    country=country,
+                    defaults={"is_active": True, "source": "interactive_core"},
+                )
+                synced.append(access)
+            return synced
     def has_admin_role(self, email):
         normalized_email = str(email or "").strip()
         if not normalized_email:

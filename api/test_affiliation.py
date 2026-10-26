@@ -110,6 +110,13 @@ class AffiliationCodeTests(AffiliationBase):
         self.assertEqual(self.request_code().status_code, 400)
         self.assertEqual(len(mail.outbox), 1)
 
+    @mock.patch("api.services.otp_service.send_mail", side_effect=RuntimeError("smtp unavailable"))
+    def test_email_failure_does_not_leave_an_active_code_or_cooldown(self, _send_mail):
+        with self.assertRaises(RuntimeError):
+            self.request_code()
+
+        self.assertFalse(OneTimeCode.objects.filter(consumed_at__isnull=True).exists())
+
     @mock.patch("rest_framework.throttling.ScopedRateThrottle.get_rate", return_value="1000/hour")
     def test_requesting_new_codes_does_not_reset_the_failed_attempt_cap(self, _rate):
         # Sin el limite por IP, para medir solo el tope por destinatario (atacante con varias IP).

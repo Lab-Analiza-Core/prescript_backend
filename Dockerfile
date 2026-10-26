@@ -23,9 +23,14 @@ RUN pip install --upgrade pip \
 
 COPY . /app
 
-RUN dos2unix /app/entrypoint.sh \
+RUN groupadd --system --gid 10001 prescript \
+  && useradd --system --uid 10001 --gid prescript --home-dir /app prescript \
+  && dos2unix /app/entrypoint.sh \
   && chmod +x /app/entrypoint.sh \
-  && mkdir -p /app/staticfiles /app/media /app/logs
+  && mkdir -p /app/staticfiles /app/media /app/logs /app/.cache \
+  && chown -R prescript:prescript /app
+
+USER prescript
 
 EXPOSE 8000
 

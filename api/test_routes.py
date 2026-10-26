@@ -1,0 +1,77 @@
+from django.test import SimpleTestCase
+from django.urls import reverse
+
+
+class ApiRouteContractTests(SimpleTestCase):
+    """La organizacion interna de rutas no debe cambiar el contrato HTTP."""
+
+    ROUTES = {
+        "health": ("/api/v1/health", {}),
+        "token-obtain-pair": ("/api/v1/auth/login", {}),
+        "token-refresh": ("/api/v1/auth/refresh", {}),
+        "auth-me": ("/api/v1/auth/me", {}),
+        "portal-access-activate": ("/api/v1/auth/access/activate", {}),
+        "portal-access-validate": ("/api/v1/auth/access/validate", {}),
+        "doctor-activate": ("/api/v1/auth/doctor/activate", {}),
+        "auth-register": ("/api/v1/auth/register", {}),
+        "invitation-validate": ("/api/v1/auth/invitation/validate", {}),
+        "affiliation-search": ("/api/v1/auth/affiliation/search", {}),
+        "affiliation-request-code": ("/api/v1/auth/affiliation/request-code", {}),
+        "affiliation-activate": ("/api/v1/auth/affiliation/activate", {}),
+        "public-divisions": ("/api/v1/auth/catalog/divisions", {}),
+        "public-specialties": ("/api/v1/auth/catalog/specialties", {}),
+        "public-terms-current": ("/api/v1/auth/terms/current", {}),
+        "patient-history-request": ("/api/v1/patient/history/request", {}),
+        "patient-history-verify": ("/api/v1/patient/history/verify", {}),
+        "patient-me-history": ("/api/v1/patient/me/history", {}),
+        "admin-affiliation-requests": ("/api/v1/admin/affiliation-requests", {}),
+        "admin-affiliation-approve": ("/api/v1/admin/affiliation-requests/7/approve", {"pk": 7}),
+        "admin-affiliation-reject": ("/api/v1/admin/affiliation-requests/7/reject", {"pk": 7}),
+        "admin-organizations": ("/api/v1/admin/organizations", {}),
+        "admin-organization-detail": ("/api/v1/admin/organizations/7", {"pk": 7}),
+        "admin-invitations": ("/api/v1/admin/organizations/7/invitations", {"organization_id": 7}),
+        "admin-invitation-detail": ("/api/v1/admin/invitations/7", {"pk": 7}),
+        "admin-members": ("/api/v1/admin/members", {}),
+        "admin-member-status": ("/api/v1/admin/members/7", {"pk": 7}),
+        "admin-secretary-assignments": ("/api/v1/admin/secretary-assignments", {}),
+        "admin-secretary-assignment-detail": ("/api/v1/admin/secretary-assignments/7", {"pk": 7}),
+        "admin-org-admins": ("/api/v1/admin/org-admins", {}),
+        "admin-org-admin-approve": ("/api/v1/admin/org-admins/7/approve", {"pk": 7}),
+        "admin-org-admin-reject": ("/api/v1/admin/org-admins/7/reject", {"pk": 7}),
+        "admin-terms": ("/api/v1/admin/terms", {}),
+        "theme-effective": ("/api/v1/theme", {}),
+        "admin-theme": ("/api/v1/admin/theme", {}),
+        "admin-theme-logo": ("/api/v1/admin/theme/logo", {}),
+        "admin-theme-options": ("/api/v1/admin/theme/options", {}),
+        "admin-theme-organizations": ("/api/v1/admin/theme/organizations", {}),
+        "admin-organization-theme": ("/api/v1/admin/organizations/7/theme", {"organization_id": 7}),
+        "admin-organization-theme-logo": ("/api/v1/admin/organizations/7/theme/logo", {"organization_id": 7}),
+        "admin-user-list-create": ("/api/v1/admin/users", {}),
+        "admin-user-detail": ("/api/v1/admin/users/7", {"pk": 7}),
+        "admin-user-reset-password": ("/api/v1/admin/users/7/reset-password", {"pk": 7}),
+        "global-search": ("/api/v1/search", {}),
+        "doctor-list": ("/api/v1/doctors", {}),
+        "doctor-me": ("/api/v1/doctor/me", {}),
+        "doctor-medicine-preferences": ("/api/v1/doctor/medicine-preferences", {}),
+        "doctor-medicine-preference-detail": ("/api/v1/doctor/medicine-preferences/7", {"pk": 7}),
+        "medicine-catalog": ("/api/v1/catalog/medicines", {}),
+        "recommended-medicines": ("/api/v1/catalog/medicines/recommended", {}),
+        "exam-catalog": ("/api/v1/catalog/exams", {}),
+        "patient-list-create": ("/api/v1/patients", {}),
+        "patient-detail": ("/api/v1/patients/7", {"pk": 7}),
+        "patient-vitals-list-create": ("/api/v1/patients/vitals", {}),
+        "preclinic-appointments": ("/api/v1/preclinic/appointments", {}),
+        "preclinic-vitals-upsert": ("/api/v1/preclinic/appointments/7/vitals", {"appointment_id": 7}),
+        "preclinic-patients": ("/api/v1/preclinic/patients", {}),
+        "preclinic-patient-vitals-upsert": ("/api/v1/preclinic/patients/7/vitals", {"patient_id": 7}),
+        "appointment-list-create": ("/api/v1/appointments", {}),
+        "appointment-detail": ("/api/v1/appointments/7", {"pk": 7}),
+        "appointment-past-reschedule": ("/api/v1/appointments/7/reschedule", {"pk": 7}),
+        "prescription-list-create": ("/api/v1/prescriptions", {}),
+        "prescription-detail": ("/api/v1/prescriptions/7", {"pk": 7}),
+    }
+
+    def test_named_routes_keep_their_public_paths(self):
+        for route_name, (expected_path, kwargs) in self.ROUTES.items():
+            with self.subTest(route=route_name):
+                self.assertEqual(reverse(route_name, kwargs=kwargs), expected_path)

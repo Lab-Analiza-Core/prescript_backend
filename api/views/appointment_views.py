@@ -13,9 +13,13 @@ from api.serializers import AppointmentSerializer
 from api.services.organization_scope import get_organization_scope
 from api.services.secretary_access import get_secretary_assigned_doctor_ids
 from api.services.country_scope import get_country_scope
-
-
-ACTIVE_APPOINTMENT_STATUSES = ("scheduled", "rescheduled")
+from api.services.appointment_service import (
+    ACTIVE_APPOINTMENT_STATUSES,
+    APPOINTMENT_TIME_CONFLICT_MESSAGE,
+    acquire_doctor_schedule_lock,
+    appointment_has_time_conflict,
+    save_appointment,
+)
 
 
 def appointment_queryset_for_request(request):
@@ -62,7 +66,7 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
         role = get_current_prescript_role(self.request.user)
         if role not in {PRESCRIPT_ROLE_DOCTOR, PRESCRIPT_ROLE_SECRETARY}:
             raise PermissionDenied("Solo secretaria y doctor pueden gestionar citas.")
-        serializer.save()
+        save_appointment(serializer)
 
 
 class AppointmentDetailView(generics.RetrieveUpdateAPIView):
@@ -71,6 +75,9 @@ class AppointmentDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         return appointment_queryset_for_request(self.request)
+
+    def perform_update(self, serializer):
+        save_appointment(serializer)
 
 
 class AppointmentPastRescheduleView(generics.GenericAPIView):
@@ -103,6 +110,16 @@ class AppointmentPastRescheduleView(generics.GenericAPIView):
             locked_appointment = Appointment.objects.select_for_update().get(pk=appointment.pk)
             if locked_appointment.status not in ACTIVE_APPOINTMENT_STATUSES:
                 raise ValidationError({"status": "La cita ya fue cerrada por otro usuario."})
+            acquire_doctor_schedule_lock(locked_appointment.doctor_id)
+            if appointment_has_time_conflict(
+                doctor=locked_appointment.doctor,
+                scheduled_at=serializer.validated_data["scheduled_at"],
+                duration_minutes=serializer.validated_data.get(
+                    "duration_minutes", locked_appointment.duration_minutes
+                ),
+                exclude_pk=locked_appointment.pk,
+            ):
+                raise ValidationError({"scheduled_at": APPOINTMENT_TIME_CONFLICT_MESSAGE})
             replacement = serializer.save()
             locked_appointment.status = "superseded"
             locked_appointment.save(update_fields=["status", "updated_at"])
