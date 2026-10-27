@@ -43,6 +43,52 @@ class MedicineCatalogMirror(models.Model):
         return self.name
 
 
+class DoctorMedicine(models.Model):
+    """Catalogo propio de un medico que no usa el catalogo sincronizado de Interactive Core."""
+
+    CATEGORY_CHOICES = [
+        ("favorite", "Favorito"),
+        ("complementary", "Complementario"),
+        ("undetermined", "Indeterminado"),
+    ]
+
+    doctor = models.ForeignKey(
+        "DoctorPortalProfile",
+        on_delete=models.CASCADE,
+        related_name="own_medicines",
+    )
+    name = models.CharField(max_length=255)
+    presentation = models.CharField(max_length=255, blank=True, default="")
+    active_ingredient = models.CharField(max_length=255, blank=True, default="")
+    commercial_house = models.CharField(max_length=255, blank=True, default="")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="undetermined")
+    # Valores que el editor de recetas precarga al elegir el medicamento.
+    default_dosage = models.CharField(max_length=120, blank=True, default="")
+    default_frequency = models.CharField(max_length=120, blank=True, default="")
+    default_duration = models.CharField(max_length=120, blank=True, default="")
+    default_instructions = models.TextField(blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "doctor_medicines"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["doctor", "name", "presentation"],
+                name="doctor_medicine_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["doctor", "is_active", "name"], name="doctor_medicine_active_idx"),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class ExamCatalogMirror(models.Model):
     interactive_core_exam_id = models.PositiveIntegerField()
     interactive_core_product_id = models.PositiveIntegerField(blank=True, null=True)

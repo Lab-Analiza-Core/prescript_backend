@@ -50,7 +50,7 @@ def manageable_organization_ids(user):
 
 def manageable_organizations(user):
     organization_ids = manageable_organization_ids(user)
-    queryset = Organization.objects.select_related("country", "division", "medical_area")
+    queryset = Organization.objects.select_related("country", "division").prefetch_related("medical_areas")
     return queryset if organization_ids is None else queryset.filter(id__in=organization_ids)
 
 
@@ -100,6 +100,16 @@ def set_member_active(user, is_active):
 def publish_terms(version, title, content):
     TermsVersion.objects.filter(is_current=True).update(is_current=False)
     return TermsVersion.objects.create(version=version, title=title, content=content, is_current=True)
+
+
+@transaction.atomic
+def activate_terms(terms):
+    """Marca una version existente como la vigente (por ejemplo para volver a una anterior)."""
+    TermsVersion.objects.filter(is_current=True).exclude(pk=terms.pk).update(is_current=False)
+    if not terms.is_current:
+        terms.is_current = True
+        terms.save(update_fields=["is_current"])
+    return terms
 
 
 def notify_org_admin_decision(profile, approved):

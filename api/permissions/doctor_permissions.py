@@ -1,5 +1,17 @@
 from rest_framework.permissions import BasePermission
 
+from api.models.organization_models import ORIGIN_SELF_REGISTERED
+
+
+class IsExternalDoctor(BasePermission):
+    """Medico autorregistrado: administra su propio catalogo de medicamentos."""
+
+    message = "Solo los medicos externos administran un catalogo propio de medicamentos."
+
+    def has_permission(self, request, view):
+        doctor = getattr(request.user, "doctor_portal_profile", None)
+        return bool(doctor and doctor.origin == ORIGIN_SELF_REGISTERED)
+
 
 class IsDoctorProfileOwner(BasePermission):
     def has_object_permission(self, request, view, obj):

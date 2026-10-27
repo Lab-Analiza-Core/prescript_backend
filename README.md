@@ -131,6 +131,11 @@ POST   /api/v1/doctor/medicine-preferences
 GET    /api/v1/doctor/medicine-preferences/<id>
 PATCH  /api/v1/doctor/medicine-preferences/<id>
 DELETE /api/v1/doctor/medicine-preferences/<id>
+GET    /api/v1/doctor/medicine-catalog      # catalogo del medico: sincronizado (Interactive Core) o propio (externo)
+GET    /api/v1/doctor/medicines             # catalogo propio, solo medicos externos
+POST   /api/v1/doctor/medicines
+PATCH  /api/v1/doctor/medicines/<id>
+DELETE /api/v1/doctor/medicines/<id>
 
 GET    /api/v1/catalog/medicines
 GET    /api/v1/catalog/medicines/recommended
@@ -152,7 +157,7 @@ POST   /api/v1/appointments
 GET    /api/v1/appointments/<id>
 PATCH  /api/v1/appointments/<id>
 
-GET    /api/v1/prescriptions
+GET    /api/v1/prescriptions                # admite ?patient=<id>
 POST   /api/v1/prescriptions
 GET    /api/v1/prescriptions/<id>
 ```

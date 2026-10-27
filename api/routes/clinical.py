@@ -1,7 +1,14 @@
 from django.urls import path
 
 from api.views.appointment_views import AppointmentDetailView, AppointmentListCreateView, AppointmentPastRescheduleView
-from api.views.catalog_views import ExamCatalogListView, MedicineCatalogListView, RecommendedMedicineListView
+from api.views.catalog_views import (
+    DoctorMedicineCatalogView,
+    DoctorOwnMedicineDetailView,
+    DoctorOwnMedicineListCreateView,
+    ExamCatalogListView,
+    MedicineCatalogListView,
+    RecommendedMedicineListView,
+)
 from api.views.doctor_views import DoctorListView, DoctorMedicinePreferenceDetailView, DoctorMedicinePreferenceListCreateView, DoctorMeView
 from api.views.patient_views import PatientDetailView, PatientListCreateView, PatientVitalsListCreateView
 from api.views.preclinic_views import (
@@ -20,6 +27,9 @@ urlpatterns = [
     path("doctor/me", DoctorMeView.as_view(), name="doctor-me"),
     path("doctor/medicine-preferences", DoctorMedicinePreferenceListCreateView.as_view(), name="doctor-medicine-preferences"),
     path("doctor/medicine-preferences/<int:pk>", DoctorMedicinePreferenceDetailView.as_view(), name="doctor-medicine-preference-detail"),
+    path("doctor/medicine-catalog", DoctorMedicineCatalogView.as_view(), name="doctor-medicine-catalog"),
+    path("doctor/medicines", DoctorOwnMedicineListCreateView.as_view(), name="doctor-own-medicines"),
+    path("doctor/medicines/<int:pk>", DoctorOwnMedicineDetailView.as_view(), name="doctor-own-medicine-detail"),
     path("catalog/medicines", MedicineCatalogListView.as_view(), name="medicine-catalog"),
     path("catalog/medicines/recommended", RecommendedMedicineListView.as_view(), name="recommended-medicines"),
     path("catalog/exams", ExamCatalogListView.as_view(), name="exam-catalog"),

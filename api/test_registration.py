@@ -39,6 +39,7 @@ class RegistrationBase(TestCase):
         self.specialty = SpecialtyCatalogMirror.objects.create(
             interactive_core_id=900, country=self.country, name="Cardiologia"
         )
+        self.organization.medical_areas.add(self.specialty)
 
     def invite(self, role, **kwargs):
         return OrganizationInvitation.objects.create(
@@ -159,6 +160,7 @@ class ExternalRegistrationTests(RegistrationBase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["organization"]["name"], "Clinica Norte")
+        self.assertEqual(response.data["organization"]["medical_areas"], ["Cardiologia"])
         self.assertEqual(response.data["role"], "DOCTOR")
         invitation.refresh_from_db()
         self.assertEqual(invitation.uses, 0)

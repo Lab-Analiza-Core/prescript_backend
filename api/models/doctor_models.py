@@ -35,12 +35,11 @@ class DoctorPortalProfile(models.Model):
     colegiation_code = models.CharField(max_length=50, blank=True, null=True)
     qualification_code = models.CharField(max_length=100, blank=True, null=True)
     final_score = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    # Se hereda de la organizacion al registrarse o activarse, pero es propio del medico.
     country = models.ForeignKey(
         "Country",
         on_delete=models.PROTECT,
         related_name="doctors",
-        blank=True,
-        null=True,
     )
     company = models.CharField(max_length=120, blank=True, null=True)
     zone = models.CharField(max_length=120, blank=True, null=True)

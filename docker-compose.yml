@@ -10,6 +10,17 @@ services:
       PRESCRIPT_HOST: host.docker.internal
       INTERACTIVE_CORE_HOST: host.docker.internal
       REDIS_URL: redis://redis:6379/1
+      # Dentro del contenedor "localhost" es el propio contenedor; las URLs del
+      # .env se sobrescriben para llegar al Postgres del host.
+      PRESCRIPT_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/prescript_db
+      INTERACTIVE_CORE_DATABASE_URL: postgres://postgres:1234@host.docker.internal:5433/interactivecore_db
+      # Acceso local por http://localhost:8003 (sin TLS): sin esto DEBUG=False
+      # redirige todo a HTTPS y las cookies seguras no se envian.
+      SECURE_SSL_REDIRECT: "false"
+      SESSION_COOKIE_SECURE: "false"
+      CSRF_COOKIE_SECURE: "false"
+      SECURE_HSTS_SECONDS: "0"
+      TRUST_PROXY_SSL_HEADER: "false"
       DATABASE_URL: ""
       DOCTOR_SYNC_QUEUE_ENABLED: "false"
       DOCTOR_SYNC_ENABLED: "false"

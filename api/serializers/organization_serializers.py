@@ -22,7 +22,17 @@ class OrganizationSerializer(serializers.ModelSerializer):
     country_name = serializers.CharField(source="country.name", read_only=True)
     division_name = serializers.CharField(source="division.name", read_only=True, default=None)
     division_type = serializers.CharField(source="division.division_type", read_only=True, default=None)
-    medical_area_name = serializers.CharField(source="medical_area.name", read_only=True, default=None)
+    medical_areas = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=SpecialtyCatalogMirror.objects.all(),
+        required=False,
+    )
+    medical_area_names = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+        source="medical_areas",
+    )
 
     class Meta:
         model = Organization
@@ -35,8 +45,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "division",
             "division_name",
             "division_type",
-            "medical_area",
-            "medical_area_name",
+            "medical_areas",
+            "medical_area_names",
             "status",
             "is_interactive_core",
             "created_at",
@@ -60,9 +70,20 @@ class OrganizationSerializer(serializers.ModelSerializer):
         if division and (division.country_id != country.id or not division.is_active):
             raise serializers.ValidationError({"division": "La division no pertenece al pais seleccionado."})
 
-        medical_area = attrs.get("medical_area", instance.medical_area if instance else None)
-        if medical_area and (medical_area.country_id != country.id or not medical_area.is_active):
-            raise serializers.ValidationError({"medical_area": "El area medica no pertenece al pais seleccionado."})
+        medical_areas = attrs.get("medical_areas")
+        if medical_areas is not None:
+            invalid_area = next(
+                (
+                    medical_area
+                    for medical_area in medical_areas
+                    if medical_area.country_id != country.id or not medical_area.is_active
+                ),
+                None,
+            )
+            if invalid_area:
+                raise serializers.ValidationError(
+                    {"medical_areas": "Todas las areas medicas deben estar activas y pertenecer al pais seleccionado."}
+                )
 
         name = attrs.get("name", instance.name if instance else "").strip()
         attrs["name"] = name
@@ -149,8 +170,15 @@ class SecretaryAssignmentSerializer(serializers.ModelSerializer):
 class TermsVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TermsVersion
-        fields = ["id", "version", "title", "content", "is_current", "published_at"]
-        read_only_fields = ["id", "is_current", "published_at"]
+        fields = ["id", "version", "title", "content", "is_current", "published_at", "acceptances_count"]
+        read_only_fields = ["id", "is_current", "published_at", "acceptances_count"]
+
+    acceptances_count = serializers.SerializerMethodField()
+
+    def get_acceptances_count(self, obj):
+        # El listado anota el conteo para evitar una consulta por fila.
+        count = getattr(obj, "acceptances_total", None)
+        return obj.acceptances.count() if count is None else count
 
 
 class MemberStatusSerializer(serializers.Serializer):

@@ -81,12 +81,10 @@ class Organization(models.Model):
         blank=True,
         null=True,
     )
-    medical_area = models.ForeignKey(
+    medical_areas = models.ManyToManyField(
         SpecialtyCatalogMirror,
-        on_delete=models.PROTECT,
         related_name="organizations",
         blank=True,
-        null=True,
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
     # Organizacion que recibe a los usuarios afiliados a Interactive Core de su pais.

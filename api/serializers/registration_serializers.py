@@ -51,7 +51,7 @@ class InvitationValidationSerializer(serializers.Serializer):
                 "country": {"code": organization.country.code, "name": organization.country.name},
                 "division": division.name if division else None,
                 "division_type": division.division_type if division else None,
-                "medical_area": organization.medical_area.name if organization.medical_area else None,
+                "medical_areas": [medical_area.name for medical_area in organization.medical_areas.all()],
             },
         }
 

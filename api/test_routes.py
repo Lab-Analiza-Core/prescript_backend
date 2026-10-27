@@ -39,6 +39,7 @@ class ApiRouteContractTests(SimpleTestCase):
         "admin-org-admin-approve": ("/api/v1/admin/org-admins/7/approve", {"pk": 7}),
         "admin-org-admin-reject": ("/api/v1/admin/org-admins/7/reject", {"pk": 7}),
         "admin-terms": ("/api/v1/admin/terms", {}),
+        "admin-terms-activate": ("/api/v1/admin/terms/7/activate", {"pk": 7}),
         "theme-effective": ("/api/v1/theme", {}),
         "admin-theme": ("/api/v1/admin/theme", {}),
         "admin-theme-logo": ("/api/v1/admin/theme/logo", {}),

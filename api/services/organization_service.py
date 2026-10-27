@@ -10,9 +10,13 @@ INVALID_INVITATION_MESSAGE = "El codigo de invitacion no es valido, vencio o ya 
 
 class InvitationService:
     def get_valid(self, code, role=None, lock=False):
-        queryset = OrganizationInvitation.objects.select_related(
-            "organization__country", "organization__division", "organization__medical_area"
-        ).filter(code=str(code or "").strip().upper(), is_active=True, organization__status="active")
+        queryset = (
+            OrganizationInvitation.objects.select_related(
+                "organization__country", "organization__division"
+            )
+            .prefetch_related("organization__medical_areas")
+            .filter(code=str(code or "").strip().upper(), is_active=True, organization__status="active")
+        )
         if lock:
             queryset = queryset.select_for_update(of=("self",))
         invitation = queryset.first()

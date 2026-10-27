@@ -12,6 +12,7 @@ from api.views.organization_admin_views import (
     OrganizationListCreateView,
     SecretaryAssignmentDetailView,
     SecretaryAssignmentListCreateView,
+    TermsVersionActivateView,
     TermsVersionListCreateView,
 )
 
@@ -32,4 +33,5 @@ urlpatterns = [
     path("admin/org-admins/<int:pk>/approve", OrgAdminDecisionView.as_view(approve=True), name="admin-org-admin-approve"),
     path("admin/org-admins/<int:pk>/reject", OrgAdminDecisionView.as_view(approve=False), name="admin-org-admin-reject"),
     path("admin/terms", TermsVersionListCreateView.as_view(), name="admin-terms"),
+    path("admin/terms/<int:pk>/activate", TermsVersionActivateView.as_view(), name="admin-terms-activate"),
 ]

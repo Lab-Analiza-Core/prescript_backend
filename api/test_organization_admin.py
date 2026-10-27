@@ -68,23 +68,27 @@ class OrganizationFormTests(AdminApiBase):
         self.specialty = SpecialtyCatalogMirror.objects.create(
             interactive_core_id=700, country=self.hn, name="Pediatria"
         )
+        self.second_specialty = SpecialtyCatalogMirror.objects.create(
+            interactive_core_id=702, country=self.hn, name="Cardiologia"
+        )
 
     def payload(self, **extra):
         data = {
             "name": "Hospital Nuevo",
             "country": self.hn.id,
             "division": self.division.id,
-            "medical_area": self.specialty.id,
+            "medical_areas": [self.specialty.id, self.second_specialty.id],
         }
         data.update(extra)
         return data
 
-    def test_global_admin_creates_organization_with_division_and_medical_area(self):
+    def test_global_admin_creates_organization_with_multiple_medical_areas(self):
         response = self.client_for(self.root).post("/api/v1/admin/organizations", self.payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data["division_name"], "Cortés")
         self.assertEqual(response.data["division_type"], "Departamento")
-        self.assertEqual(response.data["medical_area_name"], "Pediatria")
+        self.assertEqual(response.data["medical_areas"], [self.second_specialty.id, self.specialty.id])
+        self.assertEqual(response.data["medical_area_names"], ["Cardiologia", "Pediatria"])
         self.assertFalse(response.data["is_interactive_core"])
 
     def test_division_and_medical_area_must_belong_to_the_country(self):
@@ -94,9 +98,35 @@ class OrganizationFormTests(AdminApiBase):
         self.assertEqual(bad_division.status_code, 400)
         self.assertIn("division", bad_division.data)
         gt_specialty = SpecialtyCatalogMirror.objects.create(interactive_core_id=701, country=self.gt, name="Pediatria")
-        bad_area = client.post("/api/v1/admin/organizations", self.payload(medical_area=gt_specialty.id), format="json")
+        bad_area = client.post(
+            "/api/v1/admin/organizations",
+            self.payload(medical_areas=[self.specialty.id, gt_specialty.id]),
+            format="json",
+        )
         self.assertEqual(bad_area.status_code, 400)
-        self.assertIn("medical_area", bad_area.data)
+        self.assertIn("medical_areas", bad_area.data)
+
+    def test_medical_areas_can_be_replaced_and_cleared(self):
+        client = self.client_for(self.root)
+        created = client.post("/api/v1/admin/organizations", self.payload(), format="json")
+        organization_id = created.data["id"]
+
+        replaced = client.patch(
+            f"/api/v1/admin/organizations/{organization_id}",
+            {"medical_areas": [self.specialty.id]},
+            format="json",
+        )
+        self.assertEqual(replaced.status_code, 200, replaced.data)
+        self.assertEqual(replaced.data["medical_area_names"], ["Pediatria"])
+
+        cleared = client.patch(
+            f"/api/v1/admin/organizations/{organization_id}",
+            {"medical_areas": []},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.data)
+        self.assertEqual(cleared.data["medical_areas"], [])
+        self.assertEqual(cleared.data["medical_area_names"], [])
 
     def test_duplicate_name_in_the_same_country_is_rejected_but_not_in_another(self):
         client = self.client_for(self.root)
@@ -371,6 +401,30 @@ class TermsAndPublicCatalogTests(AdminApiBase):
         self.assertEqual(TermsVersion.objects.count(), 2)
         duplicate = client.post("/api/v1/admin/terms", {"version": "2.0", "content": "x"}, format="json")
         self.assertEqual(duplicate.status_code, 400)
+
+    def test_activating_an_older_version_swaps_the_current_one(self):
+        client = self.client_for(self.root)
+        old = TermsVersion.objects.create(version="1.0", content="a")
+        new = TermsVersion.objects.create(version="2.0", content="b", is_current=True)
+        response = client.post(f"/api/v1/admin/terms/{old.id}/activate")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["is_current"])
+        self.assertEqual(list(TermsVersion.objects.filter(is_current=True).values_list("pk", flat=True)), [old.pk])
+        new.refresh_from_db()
+        self.assertFalse(new.is_current)
+        self.assertEqual(client.post(f"/api/v1/admin/terms/{old.id}/activate").status_code, 200)
+
+    def test_only_global_admin_activates_terms(self):
+        terms = TermsVersion.objects.create(version="1.0", content="a")
+        response = self.client_for(self.admin_a).post(f"/api/v1/admin/terms/{terms.id}/activate")
+        self.assertEqual(response.status_code, 403)
+
+    def test_terms_list_includes_content_and_acceptance_count(self):
+        TermsVersion.objects.create(version="1.0", content="Texto", is_current=True)
+        response = self.client_for(self.root).get("/api/v1/admin/terms")
+        rows = response.data if isinstance(response.data, list) else response.data["results"]
+        self.assertEqual(rows[0]["content"], "Texto")
+        self.assertEqual(rows[0]["acceptances_count"], 0)
 
     def test_only_global_admin_publishes_terms(self):
         response = self.client_for(self.admin_a).post("/api/v1/admin/terms", {"version": "1.0", "content": "x"}, format="json")

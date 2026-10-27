@@ -121,7 +121,7 @@ class PatientHistoryView(APIView):
         prescriptions = (
             Prescription.objects.filter(patient_id__in=patient_ids)
             .select_related("doctor")
-            .prefetch_related("items__medicine")
+            .prefetch_related("items")
             .order_by("-created_at")
         )
         return Response(
@@ -154,7 +154,7 @@ class PatientHistoryView(APIView):
                         "doctor_name": format_doctor_display_name(prescription.doctor.full_name, prescription.doctor.sex),
                         "items": [
                             {
-                                "medicine": item.medicine.name,
+                                "medicine": item.medicine_name,
                                 "dosage": item.dosage,
                                 "frequency": item.frequency,
                                 "duration": item.duration,

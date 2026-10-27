@@ -47,13 +47,16 @@ class OrganizationFoundationTests(TestCase):
             user=user,
             full_name="Externo",
             organization=organization,
+            country=self.country,
             origin="self_registered",
         )
         self.assertIsNone(doctor.interactive_core_doctor_id)
 
     def test_new_profiles_default_to_interactive_core_origin(self):
         user = get_user_model().objects.create_user("ic@example.com", "ic@example.com", "pass12345")
-        doctor = DoctorPortalProfile.objects.create(user=user, full_name="IC", interactive_core_doctor_id=1)
+        doctor = DoctorPortalProfile.objects.create(
+            user=user, full_name="IC", interactive_core_doctor_id=1, country=self.country
+        )
         self.assertEqual(doctor.origin, "interactive_core")
 
     def test_patient_document_is_unique_per_country_and_type(self):

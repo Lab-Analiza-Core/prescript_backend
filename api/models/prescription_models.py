@@ -41,11 +41,26 @@ class PrescriptionItem(models.Model):
         on_delete=models.CASCADE,
         related_name="items",
     )
+    # Un item apunta al catalogo sincronizado (medicos de Interactive Core) o al catalogo propio
+    # del medico (externos); el serializer exige exactamente uno.
     medicine = models.ForeignKey(
         "MedicineCatalogMirror",
         on_delete=models.PROTECT,
         related_name="prescription_items",
+        blank=True,
+        null=True,
     )
+    doctor_medicine = models.ForeignKey(
+        "DoctorMedicine",
+        on_delete=models.SET_NULL,
+        related_name="prescription_items",
+        blank=True,
+        null=True,
+    )
+    # Copia del medicamento al emitir: la receta no cambia si el catalogo se edita o se borra.
+    medicine_name = models.CharField(max_length=255, blank=True, default="")
+    presentation = models.CharField(max_length=255, blank=True, default="")
+    active_ingredient = models.CharField(max_length=255, blank=True, default="")
     dosage = models.CharField(max_length=120)
     frequency = models.CharField(max_length=120)
     duration = models.CharField(max_length=120)
@@ -57,4 +72,4 @@ class PrescriptionItem(models.Model):
         ordering = ["sort_order", "id"]
 
     def __str__(self):
-        return f"{self.medicine} - {self.prescription}"
+        return f"{self.medicine_name} - {self.prescription}"

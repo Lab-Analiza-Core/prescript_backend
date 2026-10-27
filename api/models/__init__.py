@@ -1,5 +1,5 @@
 from .appointment_models import Appointment
-from .catalog_models import ExamCatalogMirror, MedicineCatalogMirror
+from .catalog_models import DoctorMedicine, ExamCatalogMirror, MedicineCatalogMirror
 from .country_models import Country, UserCountryAccess
 from .doctor_models import (
     DoctorAccessLog,
@@ -31,6 +31,7 @@ __all__ = [
     "Appointment",
     "DoctorAccessLog",
     "DoctorCredential",
+    "DoctorMedicine",
     "DoctorMedicinePreference",
     "DoctorPortalProfile",
     "Country",

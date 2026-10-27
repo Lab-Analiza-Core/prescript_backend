@@ -83,7 +83,7 @@ def global_search_view(request):
         | Q(patient__last_name__icontains=term)
         | Q(patient__dni__icontains=term)
         | Q(diagnosis__icontains=term)
-        | Q(items__medicine__name__icontains=term)
+        | Q(items__medicine_name__icontains=term)
     )
     if term.isdigit():
         prescription_filter |= Q(pk=int(term))

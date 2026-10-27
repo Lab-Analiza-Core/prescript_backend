@@ -10,6 +10,7 @@ from api.models import (
     DoctorPortalProfile,
     ExamCatalogMirror,
     MedicineCatalogMirror,
+    DoctorMedicine,
     Patient,
     PatientMedicalProfile,
     PatientScore,
@@ -42,6 +43,7 @@ admin.site.register(PatientVitals)
 admin.site.register(Appointment)
 admin.site.register(MedicineCatalogMirror)
 admin.site.register(DoctorMedicinePreference)
+admin.site.register(DoctorMedicine)
 admin.site.register(ExamCatalogMirror)
 admin.site.register(Prescription)
 admin.site.register(PrescriptionItem)

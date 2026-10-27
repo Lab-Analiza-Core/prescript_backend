@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Count, Q
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
@@ -31,6 +31,7 @@ from api.serializers.organization_serializers import (
 from api.services.country_scope import is_global_admin_user
 from api.services.country_service import normalize_country_code
 from api.services.organization_admin_service import (
+    activate_terms,
     generate_invitation_code,
     get_member_profile,
     manageable_organization_ids,
@@ -260,11 +261,22 @@ class TermsVersionListCreateView(generics.ListCreateAPIView):
     serializer_class = TermsVersionSerializer
     permission_classes = [IsGlobalAdmin]
     pagination_class = OptionalPageNumberPagination
-    queryset = TermsVersion.objects.all()
+    queryset = TermsVersion.objects.annotate(acceptances_total=Count("acceptances"))
 
     def perform_create(self, serializer):
         data = serializer.validated_data
         serializer.instance = publish_terms(data["version"], data.get("title", "Terminos y condiciones"), data["content"])
+
+
+class TermsVersionActivateView(APIView):
+    """Convierte en vigente una version ya publicada; la que lo era pasa a historial."""
+
+    permission_classes = [IsGlobalAdmin]
+
+    def post(self, request, pk):
+        terms = generics.get_object_or_404(TermsVersion, pk=pk)
+        activate_terms(terms)
+        return Response(TermsVersionSerializer(terms).data)
 
 
 # --- Catalogos publicos para el formulario de registro -------------------------------------
